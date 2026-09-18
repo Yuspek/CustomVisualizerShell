@@ -69,6 +69,19 @@ public:
     void setProcessCreatedHook(ProcessCreatedCallback callback);
 
     /**
+     * @brief JobManager modülünün sandbox komutlarını işlemesi için hook/callback atar.
+     * 2. Üye entegrasyonu: sandbox/job komutları bu callback üzerinden yönlendirilir.
+     */
+    using JobCommandCallback = std::function<bool(const std::vector<std::string>&)>;
+    void setJobCommandHook(JobCommandCallback callback);
+
+    /**
+     * @brief Harici süreçlerin CREATE_SUSPENDED ile başlatılıp başlatılmayacağını ayarlar.
+     * 2. Üye: JobManager sandbox aktifken true yapılmalıdır.
+     */
+    void setStartSuspended(bool suspended);
+
+    /**
      * @brief Çalışmakta olan güncel dizin yolunu döndürür.
      */
     std::string getCurrentWorkingDirectory() const;
@@ -76,6 +89,8 @@ public:
 private:
     bool m_running;
     ProcessCreatedCallback m_onProcessCreated;
+    JobCommandCallback m_onJobCommand;  ///< 2. Üye: Sandbox komut callback'i
+    bool m_startSuspended;              ///< 2. Üye: Süreç askıda başlatılsın mı?
 
     /**
      * @brief Win32 Pipe handle'ından veriyi güvenli bir şekilde string tamponuna okur.

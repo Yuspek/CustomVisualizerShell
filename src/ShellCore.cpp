@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <direct.h>
 
-ShellCore::ShellCore() : m_running(false), m_onProcessCreated(nullptr) {}
+ShellCore::ShellCore() : m_running(false), m_onProcessCreated(nullptr), m_onJobCommand(nullptr), m_startSuspended(false) {}
 
 ShellCore::~ShellCore() {}
 
@@ -42,7 +42,8 @@ void ShellCore::run() {
         }
 
         // Harici (External) süreç baslatma
-        ProcessInfo procInfo = launchProcess(inputLine, false);
+        // m_startSuspended: JobManager sandbox aktifken true, hook ile Job atandıktan sonra ResumeThread yapılır
+        ProcessInfo procInfo = launchProcess(inputLine, m_startSuspended);
 
         if (procInfo.success) {
             // STDOUT ciktisini ekrana yazdir
@@ -129,6 +130,13 @@ bool ShellCore::executeBuiltIn(const std::vector<std::string>& args) {
     if (cmd == "help") {
         printHelp();
         return true;
+    }
+
+    // JobManager komut yönlendirmesi (2. Üye)
+    if (cmd == "sandbox" || cmd == "job") {
+        if (m_onJobCommand) {
+            return m_onJobCommand(args);
+        }
     }
 
     return false;
@@ -266,6 +274,14 @@ std::string ShellCore::readFromPipe(HANDLE hReadPipe) {
 
 void ShellCore::setProcessCreatedHook(ProcessCreatedCallback callback) {
     m_onProcessCreated = callback;
+}
+
+void ShellCore::setJobCommandHook(JobCommandCallback callback) {
+    m_onJobCommand = callback;
+}
+
+void ShellCore::setStartSuspended(bool suspended) {
+    m_startSuspended = suspended;
 }
 
 std::string ShellCore::getCurrentWorkingDirectory() const {

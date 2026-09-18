@@ -13,6 +13,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(SOURCES
     src/main.cpp
     src/ShellCore.cpp
+    src/JobManager.cpp
 )
 
 # Headers list (for IDE grouping)

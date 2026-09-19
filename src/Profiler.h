@@ -26,25 +26,28 @@ struct ProcessMetrics {
  */
 class Profiler {
 public:
-    Profiler() = default;
+    Profiler()
+        : m_prevKernelTime(0)
+        , m_prevUserTime(0)
+        , m_prevWallTime(0) {}
     ~Profiler() = default;
 
     /**
      * @brief Sürecin anlık RAM ve CPU kullanımını hesaplar.
+     *
+     * Win32 API Çağrıları:
+     *   - GetProcessMemoryInfo : RAM (WorkingSet) ölçümü
+     *   - GetProcessTimes      : CPU zamanı hesaplaması
+     *   - CreateToolhelp32Snapshot + Thread32First/Next : Thread sayımı
+     *   - GetProcessHandleCount: Açık handle sayısı
      */
-    ProcessMetrics sampleProcess(HANDLE hProcess) {
-        ProcessMetrics metrics;
-        if (hProcess == NULL || hProcess == INVALID_HANDLE_VALUE) return metrics;
+    ProcessMetrics sampleProcess(HANDLE hProcess);
 
-        PROCESS_MEMORY_COUNTERS pmc;
-        if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc))) {
-            metrics.workingSetSizeMB = pmc.WorkingSetSize / (1024 * 1024);
-            metrics.peakWorkingSetSizeMB = pmc.PeakWorkingSetSize / (1024 * 1024);
-        }
-
-        // 3. Üye buraya CPU zamanı hesaplama ve Toolhelp32 tarama kodlarını ekleyecektir.
-        return metrics;
-    }
+private:
+    /// @brief CPU delta hesabı için önceki ölçüm değerleri (100-nanosecond FILETIME birimleri)
+    ULONGLONG m_prevKernelTime;  ///< Önceki Kernel zamanı
+    ULONGLONG m_prevUserTime;    ///< Önceki User zamanı
+    ULONGLONG m_prevWallTime;    ///< Önceki duvar saati (wall clock) zamanı
 };
 
 } // namespace OSVisualizer

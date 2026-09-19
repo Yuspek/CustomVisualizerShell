@@ -14,6 +14,7 @@ set(SOURCES
     src/main.cpp
     src/ShellCore.cpp
     src/JobManager.cpp
+    src/Profiler.cpp
 )
 
 # Headers list (for IDE grouping)

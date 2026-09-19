@@ -92,6 +92,7 @@ private:
     JobCommandCallback m_onJobCommand;  ///< 2. Üye: Sandbox komut callback'i
     bool m_startSuspended;              ///< 2. Üye: Süreç askıda başlatılsın mı?
     HANDLE m_hConsole;                  ///< Win32 Console Output Handle
+    std::vector<std::string> m_history; ///< Komut geçmişi (History)
 
     /**
      * @brief Win32 Pipe handle'ından veriyi güvenli bir şekilde string tamponuna okur.
@@ -112,6 +113,31 @@ private:
      * @brief Win32 Console API ile pencere ve UTF-8 kod sayfası yapılandırması.
      */
     void initConsoleWindow();
+
+    /**
+     * @brief Win32 API ile sistem donanım, RAM ve CPU çekirdek bilgilerini basar.
+     */
+    void printSysInfo() const;
+
+    /**
+     * @brief Toolhelp32 API ile sistemdeki çalışan tüm süreçleri listeler.
+     */
+    void printProcessList() const;
+
+    /**
+     * @brief Win32 OpenProcess ve TerminateProcess API ile süreci sonlandırır.
+     */
+    void killProcessByPID(DWORD pid) const;
+
+    /**
+     * @brief Komut geçmişini ekrana yazar.
+     */
+    void printHistory() const;
+
+    /**
+     * @brief Çalıştırılan komutları specter_audit.log dosyasına zaman damgasıyla kaydeder.
+     */
+    void writeAuditLog(const std::string& entry) const;
 };
 
 #endif // SHELL_CORE_H

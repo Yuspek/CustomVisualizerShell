@@ -4,6 +4,10 @@
 #include <algorithm>
 #include <direct.h>
 #include <iomanip>
+#include <tlhelp32.h>
+#include <fstream>
+#include <chrono>
+#include <ctime>
 
 ShellCore::ShellCore() : m_running(false), m_onProcessCreated(nullptr), m_onJobCommand(nullptr), m_startSuspended(false), m_hConsole(NULL) {
     initConsoleWindow();
@@ -28,18 +32,47 @@ void ShellCore::run() {
             break; // EOF veya stdin kapandi
         }
 
-        // Bos satirlari atla
+        // Boş satırları atla
         if (inputLine.empty()) {
             continue;
         }
 
-        // Komut satirini tokenlarina ayir
+        // Komut geçmişine kaydet & Audit Log yaz
+        m_history.push_back(inputLine);
+        writeAuditLog("CMD: " + inputLine);
+
+        // Komut satırını tokenlarına ayır
         std::vector<std::string> args = parseCommand(inputLine);
         if (args.empty()) {
             continue;
         }
 
-        // Dahili (Built-in) komut kontrolu
+        // ⏱️ 'time <komut>' Süreç Zaman Ölçer (Benchmark) Kontrolü
+        if (args[0] == "time" && args.size() > 1) {
+            LARGE_INTEGER freq, start, end;
+            QueryPerformanceFrequency(&freq);
+            QueryPerformanceCounter(&start);
+
+            std::string subCmdLine = inputLine.substr(5);
+            std::vector<std::string> subArgs(args.begin() + 1, args.end());
+
+            if (!executeBuiltIn(subArgs)) {
+                ProcessInfo procInfo = launchProcess(subCmdLine, m_startSuspended);
+                if (procInfo.success) {
+                    if (!procInfo.stdOutput.empty()) std::cout << procInfo.stdOutput;
+                    if (!procInfo.stdError.empty()) std::cerr << "[STDERR]: " << procInfo.stdError;
+                    if (procInfo.hProcess != NULL) CloseHandle(procInfo.hProcess);
+                    if (procInfo.hThread != NULL) CloseHandle(procInfo.hThread);
+                }
+            }
+
+            QueryPerformanceCounter(&end);
+            double elapsedMs = static_cast<double>(end.QuadPart - start.QuadPart) * 1000.0 / freq.QuadPart;
+            std::cout << "\n[⏱️ Süreç Çalışma Süresi (Benchmark): " << std::fixed << std::setprecision(2) << elapsedMs << " ms]\n\n";
+            continue;
+        }
+
+        // Dahili (Built-in) komut kontrolü
         if (executeBuiltIn(args)) {
             continue;
         }
@@ -132,6 +165,35 @@ bool ShellCore::executeBuiltIn(const std::vector<std::string>& args) {
 
     if (cmd == "exit" || cmd == "quit") {
         m_running = false;
+        return true;
+    }
+
+    if (cmd == "sysinfo" || cmd == "systeminfo") {
+        printSysInfo();
+        return true;
+    }
+
+    if (cmd == "ps" || cmd == "procs" || cmd == "processes") {
+        printProcessList();
+        return true;
+    }
+
+    if (cmd == "kill" || cmd == "taskkill") {
+        if (args.size() < 2) {
+            std::cerr << "[kill HATA]: PID belirtilmedi. Kullanım: kill <PID>\n";
+        } else {
+            try {
+                DWORD pid = static_cast<DWORD>(std::stoul(args[1]));
+                killProcessByPID(pid);
+            } catch (...) {
+                std::cerr << "[kill HATA]: Geçersiz PID sayısı: " << args[1] << "\n";
+            }
+        }
+        return true;
+    }
+
+    if (cmd == "history") {
+        printHistory();
         return true;
     }
 
@@ -660,6 +722,12 @@ void ShellCore::printHelp() const {
     std::cout << "    cls / clear      : Ekranı temizler.\n";
     std::cout << "    help             : Bu yardım menüsünü gösterir.\n";
     std::cout << "    exit / quit      : Terminalden çıkış yapar.\n\n";
+    std::cout << "  Sistem & Süreç Yönetim Komutları:\n";
+    std::cout << "    sysinfo          : Sistem RAM, CPU çekirdek ve donanım özetini gösterir.\n";
+    std::cout << "    ps / procs       : Çalışmakta olan süreçleri ve PID'leri listeler.\n";
+    std::cout << "    kill <PID>       : PID belirtilen süreci sonlandırır.\n";
+    std::cout << "    time <komut>     : Komutun çalışma süresini milisaniye cinsinden ölçer.\n";
+    std::cout << "    history          : Komut geçmişini listeler.\n\n";
     std::cout << "  Dosya Sistemi Komutları (Win32 API ile):\n";
     std::cout << "    dir / ls         : Klasör içeriğini listeler.\n";
     std::cout << "    mkdir / md <ad>  : Yeni klasör oluşturur.\n";
@@ -682,7 +750,7 @@ void ShellCore::printHelp() const {
     std::cout << "    [1] ShellCore   : REPL, Tokenizer, Process & Pipe (Aktif)\n";
     std::cout << "    [2] JobManager  : Job Objects ile RAM/CPU Limitleri (Aktif)\n";
     std::cout << "    [3] Profiler    : Canlı CPU/RAM & Handle Analizi (Aktif)\n";
-    std::cout << "    [4] UIEngine    : Split-Screen TUI Paneli (Gelecek)\n";
+    std::cout << "    [4] UIEngine    : Split-Screen GUI Paneli (Tasarım Hazır)\n";
     std::cout << "=======================================================================\n\n";
 }
 
@@ -714,9 +782,9 @@ void ShellCore::initConsoleWindow() {
     COORD bufferSize = { 140, 9000 };
 
     SMALL_RECT minWindow = { 0, 0, 1, 1 };
-    SetConsoleWindowInfo(m_hConsole, TRUE, &minWindow);
-    SetConsoleScreenBufferSize(m_hConsole, bufferSize);
-    SetConsoleWindowInfo(m_hConsole, TRUE, &windowSize);
+    SetConsoleWindowInfo(hConsole, TRUE, &minWindow);
+    SetConsoleScreenBufferSize(hConsole, bufferSize);
+    SetConsoleWindowInfo(hConsole, TRUE, &windowSize);
 
     // --- 5. Arkaplan rengini tüm pencereye uygula ---
     DWORD cellCount = bufferSize.X * bufferSize.Y;
@@ -725,4 +793,105 @@ void ShellCore::initConsoleWindow() {
     FillConsoleOutputAttribute(hConsole, 0x1F, cellCount, origin, &charsWritten);
 
     SetConsoleCursorPosition(hConsole, origin);
+}
+
+void ShellCore::printSysInfo() const {
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+
+    MEMORYSTATUSEX memStatus;
+    memStatus.dwLength = sizeof(memStatus);
+    GlobalMemoryStatusEx(&memStatus);
+
+    char computerName[MAX_COMPUTERNAME_LENGTH + 1];
+    DWORD nameLen = MAX_COMPUTERNAME_LENGTH + 1;
+    GetComputerNameA(computerName, &nameLen);
+
+    std::cout << "\n  +--------------------------------------------------+\n";
+    std::cout << "  |             SİSTEM VE DONANIM ÖZETİ              |\n";
+    std::cout << "  +--------------------------------------------------+\n";
+    std::cout << "  |  Bilgisayar Adı  : " << computerName << "\n";
+    std::cout << "  |  CPU Mimarisi    : " << (sysInfo.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ? "x64 (64-bit)" : "x86 (32-bit)") << "\n";
+    std::cout << "  |  CPU Çekirdek    : " << sysInfo.dwNumberOfProcessors << " Çekirdek\n";
+    std::cout << "  |  Sayfa Boyutu    : " << sysInfo.dwPageSize << " Byte\n";
+    std::cout << "  |  Toplam RAM      : " << (memStatus.ullTotalPhys / (1024 * 1024 * 1024)) << " GB (" << (memStatus.ullTotalPhys / (1024 * 1024)) << " MB)\n";
+    std::cout << "  |  Kullanılabilir : " << (memStatus.ullAvailPhys / (1024 * 1024 * 1024)) << " GB (" << (memStatus.ullAvailPhys / (1024 * 1024)) << " MB)\n";
+    std::cout << "  |  Bellek Yükü     : %" << memStatus.dwMemoryLoad << "\n";
+    std::cout << "  +--------------------------------------------------+\n\n";
+}
+
+void ShellCore::printProcessList() const {
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot == INVALID_HANDLE_VALUE) {
+        std::cerr << "[ps HATA]: Sistem süreç görüntüsü alınamadı.\n";
+        return;
+    }
+
+    PROCESSENTRY32 pe32;
+    ZeroMemory(&pe32, sizeof(pe32));
+    pe32.dwSize = sizeof(PROCESSENTRY32);
+
+    if (!Process32First(hSnapshot, &pe32)) {
+        CloseHandle(hSnapshot);
+        std::cerr << "[ps HATA]: Süreç listesi okunamadı.\n";
+        return;
+    }
+
+    std::cout << "\n  +-----------------------------------------------------------------+\n";
+    std::cout << "  |   PID    |  THREAD  |  SÜREÇ ADI                                |\n";
+    std::cout << "  +-----------------------------------------------------------------+\n";
+
+    int count = 0;
+    do {
+        std::cout << "  | " << std::setw(8) << pe32.th32ProcessID 
+                  << " | " << std::setw(8) << pe32.cntThreads 
+                  << " | " << pe32.szExeFile << "\n";
+        count++;
+    } while (Process32Next(hSnapshot, &pe32) && count < 35);
+
+    std::cout << "  +-----------------------------------------------------------------+\n";
+    std::cout << "  | Toplam Listelenen Süreç: " << count << "\n";
+    std::cout << "  +-----------------------------------------------------------------+\n\n";
+
+    CloseHandle(hSnapshot);
+}
+
+void ShellCore::killProcessByPID(DWORD pid) const {
+    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+    if (hProcess == NULL) {
+        DWORD err = GetLastError();
+        std::cerr << "[kill HATA]: PID " << pid << " için süreç açılamadı! (Hata Kodu: " << err << ")\n";
+        return;
+    }
+
+    if (TerminateProcess(hProcess, 1)) {
+        std::cout << "  [BAŞARILI]: PID " << pid << " olan süreç başarıyla sonlandırıldı.\n";
+        writeAuditLog("KILL PROCESS PID: " + std::to_string(pid));
+    } else {
+        DWORD err = GetLastError();
+        std::cerr << "[kill HATA]: Süreç sonlandırılamadı! (Hata Kodu: " << err << ")\n";
+    }
+
+    CloseHandle(hProcess);
+}
+
+void ShellCore::printHistory() const {
+    std::cout << "\n  +--------------------------------------------------+\n";
+    std::cout << "  |               KOMUT GEÇMİŞİ (HISTORY)            |\n";
+    std::cout << "  +--------------------------------------------------+\n";
+    for (size_t i = 0; i < m_history.size(); ++i) {
+        std::cout << "  | " << std::setw(3) << (i + 1) << ". " << m_history[i] << "\n";
+    }
+    std::cout << "  +--------------------------------------------------+\n\n";
+}
+
+void ShellCore::writeAuditLog(const std::string& entry) const {
+    std::ofstream logFile("specter_audit.log", std::ios::app);
+    if (logFile.is_open()) {
+        auto now = std::chrono::system_clock::now();
+        auto in_time_t = std::chrono::system_clock::to_time_t(now);
+        struct tm buf;
+        localtime_s(&buf, &in_time_t);
+        logFile << "[" << std::put_time(&buf, "%Y-%m-%d %H:%M:%S") << "] " << entry << "\n";
+    }
 }

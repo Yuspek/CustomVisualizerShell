@@ -1,21 +1,36 @@
 #include "ShellCore.h"
 #include "JobManager.h"
+#include "Profiler.h"
 #include <iostream>
+#include <iomanip>
 
 int main() {
     try {
         ShellCore shell;
         OSVisualizer::JobManager jobManager;
+        OSVisualizer::Profiler profiler;
 
-        // 2. Üye: Süreç başlatıldığında JobManager'ın sandbox kısıtlamalarını uygulaması için hook
-        // ShellCore, CREATE_SUSPENDED ile süreci başlatır → bu callback tetiklenir →
-        // JobManager Job Object oluşturup süreci atar → ShellCore ResumeThread ile devam ettirir
-        shell.setProcessCreatedHook([&jobManager](ProcessInfo& procInfo) {
+        // 2. Üye & 3. Üye Entegrasyonu: Süreç başlatıldığında Sandboxing & Profiling
+        shell.setProcessCreatedHook([&jobManager, &profiler](ProcessInfo& procInfo) {
+            // 2. Üye: JobManager Sandbox Kısıtlamaları
             if (jobManager.isEnabled()) {
                 OSVisualizer::SandboxResult result = jobManager.createJobAndApply(procInfo);
                 if (!result.success) {
                     std::cerr << "[JobManager HATA]: " << result.errorMessage << "\n";
                 }
+            }
+
+            // 3. Üye: Profiler Canlı Süreç Metrikleri
+            if (procInfo.hProcess != NULL) {
+                OSVisualizer::ProcessMetrics metrics = profiler.sampleProcess(procInfo.hProcess);
+                std::cout << "  +--------------------------------------------------+\n";
+                std::cout << "  |          PROFILER METRİKLERİ (3. Üye)            |\n";
+                std::cout << "  +--------------------------------------------------+\n";
+                std::cout << "  |  PID            : " << procInfo.dwProcessId << "\n";
+                std::cout << "  |  RAM (WorkingSet): " << metrics.workingSetSizeMB << " MB (Peak: " << metrics.peakWorkingSetSizeMB << " MB)\n";
+                std::cout << "  |  Açık Handle    : " << metrics.openHandleCount << "\n";
+                std::cout << "  |  Thread Sayısı  : " << metrics.threadCount << "\n";
+                std::cout << "  +--------------------------------------------------+\n\n";
             }
         });
 

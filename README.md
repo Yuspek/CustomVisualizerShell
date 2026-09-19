@@ -1,6 +1,6 @@
-# Custom Visualizer Shell (OS-Visualizer & Sandbox Shell)
+# SpecTer (Observability & Sandboxed CLI/GUI Terminal)
 
-Windows İşletim Sistemi kernel seviyesinde süreç yönetimi, canlı metrik izleme ve sandboxing yeteneklerine sahip modüler C++ CLI ve TUI uygulaması.
+Windows İşletim Sistemi kernel seviyesinde süreç yönetimi, canlı metrik izleme, sandboxing ve profesyonel grafiksel görselleştirme paneline sahip modüler C++ uygulaması.
 
 ---
 
@@ -13,7 +13,7 @@ Proje 4 bağımsız ama birbiriyle entegre çalışan modülden oluşmaktadır:
 | **`ShellCore`** | **1. Üye** | REPL döngüsü, komut ayrıştırma (tokenizer), dahili (`cd`, `cls`, `help`, `exit`) ve harici (`CreateProcessA`) süreç yönetimi, Win32 Pipe ile STDOUT/STDERR yakalama. |
 | **`JobManager`** | **2. Üye** | Windows `Job Objects` API (`CreateJobObject`, `AssignProcessToJobObject`) ile süreçlere RAM ve CPU sınırları uygulama. |
 | **`Profiler`** | **3. Üye** | `GetProcessMemoryInfo`, `GetProcessTimes` ve Toolhelp32 API ile anlık CPU/RAM kullanımı ve kilitli Handle analiz raporu üretimi. |
-| **`UIEngine`** | **4. Üye** | Split-screen (Bölünmüş Ekran) TUI panel çizimi (Sol: Terminal Çıktısı, Sağ: Canlı İzleme & Metrik Paneli). |
+| **`UIEngine`** | **4. Üye** | Profesyonel Grafiksel Arayüz (GUI Dashboard): Canlı RAM/CPU dairesel göstergeleri, zaman serisi grafikleri, interaktif Sandbox slider denetimleri ve Kernel Handle hiyerarşi ağacı. |
 
 ---
 

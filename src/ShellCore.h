@@ -91,6 +91,7 @@ private:
     ProcessCreatedCallback m_onProcessCreated;
     JobCommandCallback m_onJobCommand;  ///< 2. Üye: Sandbox komut callback'i
     bool m_startSuspended;              ///< 2. Üye: Süreç askıda başlatılsın mı?
+    HANDLE m_hConsole;                  ///< Win32 Console Output Handle
 
     /**
      * @brief Win32 Pipe handle'ından veriyi güvenli bir şekilde string tamponuna okur.
@@ -106,6 +107,11 @@ private:
      * @brief Yardım menüsünü ve proje mimarisini ekrana basar.
      */
     void printHelp() const;
+
+    /**
+     * @brief Win32 Console API ile pencere ve UTF-8 kod sayfası yapılandırması.
+     */
+    void initConsoleWindow();
 };
 
 #endif // SHELL_CORE_H

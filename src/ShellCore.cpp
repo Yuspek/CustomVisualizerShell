@@ -5,7 +5,9 @@
 #include <direct.h>
 #include <iomanip>
 
-ShellCore::ShellCore() : m_running(false), m_onProcessCreated(nullptr), m_onJobCommand(nullptr), m_startSuspended(false) {}
+ShellCore::ShellCore() : m_running(false), m_onProcessCreated(nullptr), m_onJobCommand(nullptr), m_startSuspended(false), m_hConsole(NULL) {
+    initConsoleWindow();
+}
 
 ShellCore::~ShellCore() {}
 
@@ -13,13 +15,13 @@ void ShellCore::run() {
     m_running = true;
 
     std::cout << "=======================================================================\n";
-    std::cout << "  OS-Visualizer & Sandbox Shell (Milestone 1: ShellCore Enabled)\n";
-    std::cout << "  Tip: 'help' yazarak dahili komutlari ve proje mimarisini gorebilirsiniz.\n";
+    std::cout << "  SpecTer v1.0 (Milestone 1-3 Entegre: ShellCore + JobManager + Profiler)\n";
+    std::cout << "  İpucu: 'help' yazarak tüm komutları ve modül mimarisini görebilirsiniz.\n";
     std::cout << "=======================================================================\n\n";
 
     while (m_running) {
         std::string currentDir = getCurrentWorkingDirectory();
-        std::cout << "OS-Visualizer [" << currentDir << "]> ";
+        std::cout << "SpecTer [" << currentDir << "]> ";
 
         std::string inputLine;
         if (!std::getline(std::cin, inputLine)) {
@@ -651,35 +653,76 @@ void ShellCore::clearConsole() {
 
 void ShellCore::printHelp() const {
     std::cout << "\n=======================================================================\n";
-    std::cout << "                 OS-VISUALIZER & SANDBOX SHELL - YARDIM                \n";
+    std::cout << "                         SpecTer - YARDIM                              \n";
     std::cout << "=======================================================================\n";
     std::cout << "  Dahili Komutlar (Built-in Commands):\n";
-    std::cout << "    cd <path>        : Calisma dizinini degistirir (surucu icin: c:, d:).\n";
-    std::cout << "    cls / clear      : Ekrani temizler.\n";
-    std::cout << "    help             : Bu yardim menusunu gosterir.\n";
-    std::cout << "    exit / quit      : Terminalden cikis yapar.\n\n";
-    std::cout << "  Dosya Sistemi Komutlari (Win32 API ile):\n";
-    std::cout << "    dir / ls         : Klasor icerigini listeler.\n";
-    std::cout << "    mkdir / md <ad>  : Yeni klasor olusturur.\n";
-    std::cout << "    rmdir / rd <ad>  : Klasor siler (icerigiyle silmek icin: rmdir /s <ad>).\n";
-    std::cout << "    touch <ad>       : Bos dosya olusturur.\n";
+    std::cout << "    cd <path>        : Çalışma dizinini değiştirir (sürücü için: c:, d:).\n";
+    std::cout << "    cls / clear      : Ekranı temizler.\n";
+    std::cout << "    help             : Bu yardım menüsünü gösterir.\n";
+    std::cout << "    exit / quit      : Terminalden çıkış yapar.\n\n";
+    std::cout << "  Dosya Sistemi Komutları (Win32 API ile):\n";
+    std::cout << "    dir / ls         : Klasör içeriğini listeler.\n";
+    std::cout << "    mkdir / md <ad>  : Yeni klasör oluşturur.\n";
+    std::cout << "    rmdir / rd <ad>  : Klasör siler (içeriğiyle silmek için: rmdir /s <ad>).\n";
+    std::cout << "    touch <ad>       : Boş dosya oluşturur.\n";
     std::cout << "    del / rm <dosya> : Dosya siler.\n";
-    std::cout << "    type <dosya>     : Dosya icerigini gosterir.\n";
+    std::cout << "    type <dosya>     : Dosya içeriğini gösterir.\n";
     std::cout << "    copy <src> <dst> : Dosya kopyalar.\n";
-    std::cout << "    move <src> <dst> : Dosya tasir / yeniden adlandirir.\n";
+    std::cout << "    move <src> <dst> : Dosya taşır / yeniden adlandırır.\n";
     std::cout << "    echo <metin>     : Ekrana metin yazar.\n\n";
-    std::cout << "  Sandbox Komutlari (2. Uye - JobManager):\n";
-    std::cout << "    sandbox on/off       : Sandbox modunu ac/kapat.\n";
+    std::cout << "  Sandbox Komutları (2. Üye - JobManager):\n";
+    std::cout << "    sandbox on/off       : Sandbox modunu aç/kapat.\n";
     std::cout << "    sandbox set ram <MB> : RAM limitini ayarlar.\n";
     std::cout << "    sandbox set cpu <%>  : CPU limitini ayarlar.\n";
-    std::cout << "    sandbox status       : Sandbox durumunu gosterir.\n\n";
+    std::cout << "    sandbox status       : Sandbox durumunu gösterir.\n\n";
     std::cout << "  Harici Komutlar (External Process):\n";
-    std::cout << "    ping, ipconfig, powershell gibi sistem uygulamalarini\n";
-    std::cout << "    CreateProcessA ile alt surec olarak calistirir.\n\n";
-    std::cout << "  Moduler Mimari (4 Uye Yapisi):\n";
+    std::cout << "    ping, ipconfig, powershell gibi sistem uygulamalarını\n";
+    std::cout << "    CreateProcessA ile alt süreç olarak çalıştırır.\n\n";
+    std::cout << "  Modüler Mimari (4 Üye Yapısı):\n";
     std::cout << "    [1] ShellCore   : REPL, Tokenizer, Process & Pipe (Aktif)\n";
     std::cout << "    [2] JobManager  : Job Objects ile RAM/CPU Limitleri (Aktif)\n";
-    std::cout << "    [3] Profiler    : Canli CPU/RAM & Handle Analizi (Gelecek)\n";
+    std::cout << "    [3] Profiler    : Canlı CPU/RAM & Handle Analizi (Aktif)\n";
     std::cout << "    [4] UIEngine    : Split-Screen TUI Paneli (Gelecek)\n";
     std::cout << "=======================================================================\n\n";
+}
+
+void ShellCore::initConsoleWindow() {
+    // Türkçe karakter desteği için UTF-8 (CP 65001) aktif et
+    SetConsoleOutputCP(65001);
+    SetConsoleCP(65001);
+
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hConsole == INVALID_HANDLE_VALUE) return;
+
+    // --- 1. Pencere Başlığı ---
+    SetConsoleTitleA("SpecTer v1.0 | İşletim Sistemleri Projesi");
+
+    // --- 2. Renk Paleti (Koyu Mavi Arkaplan + Beyaz Yazı) ---
+    SetConsoleTextAttribute(hConsole, 0x1F);
+
+    // --- 3. Font Ayarları (Consolas, 18pt) ---
+    CONSOLE_FONT_INFOEX fontInfo;
+    ZeroMemory(&fontInfo, sizeof(CONSOLE_FONT_INFOEX));
+    fontInfo.cbSize = sizeof(CONSOLE_FONT_INFOEX);
+    fontInfo.dwFontSize.Y = 18;
+    fontInfo.FontWeight = FW_NORMAL;
+    wcscpy_s(fontInfo.FaceName, L"Consolas");
+    SetCurrentConsoleFontEx(hConsole, FALSE, &fontInfo);
+
+    // --- 4. Pencere Boyutu (140 sütun x 35 satır) ---
+    SMALL_RECT windowSize = { 0, 0, 139, 34 };
+    COORD bufferSize = { 140, 9000 };
+
+    SMALL_RECT minWindow = { 0, 0, 1, 1 };
+    SetConsoleWindowInfo(m_hConsole, TRUE, &minWindow);
+    SetConsoleScreenBufferSize(m_hConsole, bufferSize);
+    SetConsoleWindowInfo(m_hConsole, TRUE, &windowSize);
+
+    // --- 5. Arkaplan rengini tüm pencereye uygula ---
+    DWORD cellCount = bufferSize.X * bufferSize.Y;
+    DWORD charsWritten;
+    COORD origin = { 0, 0 };
+    FillConsoleOutputAttribute(hConsole, 0x1F, cellCount, origin, &charsWritten);
+
+    SetConsoleCursorPosition(hConsole, origin);
 }

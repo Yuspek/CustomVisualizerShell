@@ -88,6 +88,11 @@ public:
      */
     void setSandboxUpdateCallback(SandboxUpdateCallback callback);
 
+    /**
+     * @brief Aktif çalışmakta olan alt süreci canlı profilleme için bildirim metodu.
+     */
+    void setActiveProcess(HANDLE hProcess, DWORD pid, const std::string& name);
+
 private:
     void guiThreadFunc(HINSTANCE hInstance);
     static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -120,6 +125,10 @@ private:
 
     // GDI Kaynakları
     HBRUSH m_hStaticBrush = NULL;               ///< WM_CTLCOLORSTATIC için kart arkaplan fırçası
+
+    // Canlı profilleme için aktif süreç ve Profiler
+    HANDLE m_hActiveProcess = NULL;
+    OSVisualizer::Profiler m_internalProfiler;
 };
 
 } // namespace SpecTer

@@ -4,10 +4,18 @@
 #include <windows.h>
 #include <string>
 #include <vector>
+#include <deque>
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <functional>
 #include "Profiler.h"
 #include "JobManager.h"
 
 namespace SpecTer {
+
+using OSVisualizer::ProcessMetrics;
+using OSVisualizer::SandboxConfig;
 
 /**
  * @struct DashboardState
@@ -20,6 +28,17 @@ struct DashboardState {
     DWORD activePID = 0;               ///< Çalışmakta olan aktif sürecin PID'si
     std::string processName;           ///< Çalıştırılan uygulamanın adı (örn. ping.exe, cmd.exe)
 };
+
+/**
+ * @struct MetricSample
+ * @brief Zaman serisi grafiği için anlık örnek veri yapısı.
+ */
+struct MetricSample {
+    double cpuUsagePercent = 0.0;
+    size_t ramMB = 0;
+};
+
+using SandboxUpdateCallback = std::function<void(const SandboxConfig&, bool)>;
 
 /**
  * @class UIEngine
@@ -38,8 +57,8 @@ struct DashboardState {
  */
 class UIEngine {
 public:
-    UIEngine() = default;
-    ~UIEngine() = default;
+    UIEngine();
+    ~UIEngine();
 
     /**
      * @brief Grafiksel GUI penceresini oluşturur ve başlatır.
@@ -64,8 +83,43 @@ public:
      */
     void closeDashboard();
 
+    /**
+     * @brief Sandbox ayarları değiştiğinde çağrılacak callback fonksiyonunu ayarlar.
+     */
+    void setSandboxUpdateCallback(SandboxUpdateCallback callback);
+
 private:
-    HWND m_hWnd = NULL;  ///< Win32 GUI Pencere Handle'ı
+    void guiThreadFunc(HINSTANCE hInstance);
+    static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+    void setupControls(HWND hWnd);
+    void handleHScroll(HWND hWnd, WPARAM wParam, LPARAM lParam);
+    void handleCommand(HWND hWnd, WPARAM wParam, LPARAM lParam);
+    void onPaint(HWND hWnd);
+
+private:
+    HWND m_hWnd = NULL;                          ///< Win32 GUI Pencere Handle'ı
+    std::atomic<bool> m_running{false};
+    std::atomic<bool> m_windowReady{false};
+    std::thread m_guiThread;
+    std::mutex m_stateMutex;
+
+    DashboardState m_state;
+    static constexpr size_t MAX_HISTORY_POINTS = 60;
+    std::deque<MetricSample> m_history;
+
+    SandboxUpdateCallback m_sandboxCallback = nullptr;
+
+    // Win32 Kontrol Handle'ları
+    HWND m_hTrackRam = NULL;
+    HWND m_hTrackCpu = NULL;
+    HWND m_hBtnToggleSandbox = NULL;
+    HWND m_hBtnApply = NULL;
+    HWND m_hLblRamVal = NULL;
+    HWND m_hLblCpuVal = NULL;
+
+    // GDI Kaynakları
+    HBRUSH m_hStaticBrush = NULL;               ///< WM_CTLCOLORSTATIC için kart arkaplan fırçası
 };
 
 } // namespace SpecTer

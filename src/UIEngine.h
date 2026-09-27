@@ -93,14 +93,23 @@ public:
      */
     void setActiveProcess(HANDLE hProcess, DWORD pid, const std::string& name);
 
+    // Gömülü Terminal (Left Pane) Komut ve Metin Yönetimi
+    using CommandHandler = std::function<void(const std::string&)>;
+    void setCommandHandler(CommandHandler handler);
+    void printTerminalText(const std::string& text);
+    void clearTerminal();
+    void printPrompt();
+
 private:
     void guiThreadFunc(HINSTANCE hInstance);
     static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK TerminalEditProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     void setupControls(HWND hWnd);
     void handleHScroll(HWND hWnd, WPARAM wParam, LPARAM lParam);
     void handleCommand(HWND hWnd, WPARAM wParam, LPARAM lParam);
     void onPaint(HWND hWnd);
+    void replaceCurrentInput(const std::string& input);
 
 private:
     HWND m_hWnd = NULL;                          ///< Win32 GUI Pencere Handle'ı
@@ -115,7 +124,17 @@ private:
 
     SandboxUpdateCallback m_sandboxCallback = nullptr;
 
-    // Win32 Kontrol Handle'ları
+    // Sol Panel Gömülü Terminal Kontrolleri
+    HWND m_hTerminalEdit = NULL;
+    HFONT m_hTermFont = NULL;
+    HBRUSH m_hTermBrush = NULL;
+    WNDPROC m_pfnOldEditProc = nullptr;
+    CommandHandler m_commandHandler = nullptr;
+
+    std::vector<std::string> m_termHistory;
+    int m_termHistoryIndex = -1;
+
+    // Sağ Panel Win32 Kontrol Handle'ları
     HWND m_hTrackRam = NULL;
     HWND m_hTrackCpu = NULL;
     HWND m_hBtnToggleSandbox = NULL;

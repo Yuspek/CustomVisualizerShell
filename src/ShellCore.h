@@ -60,6 +60,10 @@ public:
     // Mevcut çalışma dizinini döndürür
     std::string getCurrentWorkingDirectory() const;
 
+    // Tek bir komut satırını çalıştırır ve çıktıları canlı akış olarak outputCb callback'ine gönderir
+    using OutputCallback = std::function<void(const std::string&)>;
+    void executeLineStream(const std::string& inputLine, OutputCallback outputCb);
+
 private:
     bool m_running;                         // REPL döngüsü çalışıyor mu?
     ProcessCreatedCallback m_onProcessCreated; // Süreç oluşturma tetikleyicisi

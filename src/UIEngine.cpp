@@ -57,6 +57,11 @@ UIEngine::UIEngine()
     , m_running(false)
     , m_windowReady(false)
     , m_sandboxCallback(nullptr)
+    , m_hTerminalEdit(NULL)
+    , m_hTermFont(NULL)
+    , m_hTermBrush(CreateSolidBrush(RGB(12, 16, 24)))
+    , m_pfnOldEditProc(nullptr)
+    , m_commandHandler(nullptr)
     , m_hTrackRam(NULL)
     , m_hTrackCpu(NULL)
     , m_hBtnToggleSandbox(NULL)
@@ -83,6 +88,14 @@ UIEngine::~UIEngine() {
     if (m_hStaticBrush) {
         DeleteObject(m_hStaticBrush);
         m_hStaticBrush = NULL;
+    }
+    if (m_hTermBrush) {
+        DeleteObject(m_hTermBrush);
+        m_hTermBrush = NULL;
+    }
+    if (m_hTermFont) {
+        DeleteObject(m_hTermFont);
+        m_hTermFont = NULL;
     }
 }
 
@@ -208,18 +221,8 @@ void UIEngine::guiThreadFunc(HINSTANCE hInstance) {
 
     m_hWnd = hWnd;
 
-    // --- Konsol Penceresini Sol Panele (x: 15, y: 50, w: 680, h: 695) Gömme ---
-    HWND hConsoleWnd = GetConsoleWindow();
-    if (hConsoleWnd != NULL && IsWindow(hConsoleWnd)) {
-        LONG style = GetWindowLongA(hConsoleWnd, GWL_STYLE);
-        style &= ~(WS_POPUP | WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
-        style |= WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS;
-        SetWindowLongA(hConsoleWnd, GWL_STYLE, style);
-        SetParent(hConsoleWnd, hWnd);
-        SetWindowPos(hConsoleWnd, NULL, 15, 50, 680, 695, SWP_NOZORDER | SWP_FRAMECHANGED);
-    }
-
     setupControls(hWnd);
+    printPrompt();
 
     ShowWindow(hWnd, SW_SHOW);
     UpdateWindow(hWnd);
@@ -304,8 +307,18 @@ LRESULT CALLBACK UIEngine::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         }
         break;
 
+    case WM_CTLCOLOREDIT:
     case WM_CTLCOLORSTATIC: {
         HDC hdcStatic = (HDC)wParam;
+        HWND hCtrl = (HWND)lParam;
+        if (pThis && hCtrl == pThis->m_hTerminalEdit) {
+            SetTextColor(hdcStatic, RGB(0, 230, 118)); // Cyberpunk Neon Green Terminal Text
+            SetBkColor(hdcStatic, RGB(12, 16, 24));    // Dark Terminal Background
+            if (!pThis->m_hTermBrush) {
+                pThis->m_hTermBrush = CreateSolidBrush(RGB(12, 16, 24));
+            }
+            return (LRESULT)pThis->m_hTermBrush;
+        }
         SetTextColor(hdcStatic, Theme::TEXT_PRIMARY);
         SetBkColor(hdcStatic, Theme::CARD_BG);
         if (pThis) {
@@ -333,6 +346,28 @@ LRESULT CALLBACK UIEngine::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 // ─────────────────────────────────────────────────────────────────────────────
 void UIEngine::setupControls(HWND hWnd) {
     HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrA(hWnd, GWLP_HINSTANCE);
+
+    // 0. Sol Panel Gömülü Terminal Kontrolü (x: 15, y: 75, w: 675, h: 665)
+    m_hTerminalEdit = CreateWindowExA(
+        0, "EDIT", "",
+        WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL,
+        15, 75, 675, 665,
+        hWnd, (HMENU)100, hInst, NULL
+    );
+
+    // Text limitini maksimum yap (~2GB)
+    SendMessageA(m_hTerminalEdit, EM_LIMITTEXT, 0, 0);
+
+    // Sabit genişlikli Monospace Font (Consolas)
+    m_hTermFont = CreateFontA(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, "Consolas");
+    if (m_hTermFont) {
+        SendMessageA(m_hTerminalEdit, WM_SETFONT, (WPARAM)m_hTermFont, TRUE);
+    }
+
+    // Subclass Terminal Edit Control
+    SetWindowLongPtrA(m_hTerminalEdit, GWLP_USERDATA, (LONG_PTR)this);
+    m_pfnOldEditProc = (WNDPROC)SetWindowLongPtrA(m_hTerminalEdit, GWLP_WNDPROC, (LONG_PTR)TerminalEditProc);
 
     // 1. RAM Slider Etiketi
     CreateWindowA("STATIC", "RAM Limiti (MB):",
@@ -749,6 +784,137 @@ void UIEngine::onPaint(HWND hWnd) {
     DeleteDC(hdc);
 
     EndPaint(hWnd, &ps);
+}
+
+LRESULT CALLBACK UIEngine::TerminalEditProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    UIEngine* pThis = (UIEngine*)GetWindowLongPtrA(hWnd, GWLP_USERDATA);
+    WNDPROC pfnOld = pThis ? pThis->m_pfnOldEditProc : nullptr;
+
+    if (msg == WM_KEYDOWN) {
+        if (wParam == VK_RETURN) {
+            if (!pThis) return 0;
+
+            int textLen = GetWindowTextLengthA(hWnd);
+            std::vector<char> buf(textLen + 1, 0);
+            GetWindowTextA(hWnd, buf.data(), textLen + 1);
+
+            std::string fullText(buf.data());
+            size_t lastPrompt = fullText.rfind("SpecTer [");
+            std::string cmd;
+            if (lastPrompt != std::string::npos) {
+                size_t arrowPos = fullText.find("]> ", lastPrompt);
+                if (arrowPos != std::string::npos) {
+                    cmd = fullText.substr(arrowPos + 3);
+                }
+            } else {
+                cmd = fullText;
+            }
+
+            while (!cmd.empty() && (cmd.back() == '\r' || cmd.back() == '\n' || cmd.back() == ' ')) {
+                cmd.pop_back();
+            }
+
+            pThis->printTerminalText("\r\n");
+
+            if (!cmd.empty()) {
+                pThis->m_termHistory.push_back(cmd);
+                pThis->m_termHistoryIndex = (int)pThis->m_termHistory.size();
+
+                std::string cmdToExec = cmd;
+                std::thread([pThis, cmdToExec]() {
+                    if (pThis->m_commandHandler) {
+                        pThis->m_commandHandler(cmdToExec);
+                    }
+                    pThis->printPrompt();
+                }).detach();
+            } else {
+                pThis->printPrompt();
+            }
+            return 0;
+        }
+        else if (wParam == VK_UP) {
+            if (pThis && !pThis->m_termHistory.empty()) {
+                if (pThis->m_termHistoryIndex > 0) {
+                    pThis->m_termHistoryIndex--;
+                }
+                if (pThis->m_termHistoryIndex >= 0 && pThis->m_termHistoryIndex < (int)pThis->m_termHistory.size()) {
+                    pThis->replaceCurrentInput(pThis->m_termHistory[pThis->m_termHistoryIndex]);
+                }
+            }
+            return 0;
+        }
+        else if (wParam == VK_DOWN) {
+            if (pThis && !pThis->m_termHistory.empty()) {
+                if (pThis->m_termHistoryIndex < (int)pThis->m_termHistory.size() - 1) {
+                    pThis->m_termHistoryIndex++;
+                    pThis->replaceCurrentInput(pThis->m_termHistory[pThis->m_termHistoryIndex]);
+                } else {
+                    pThis->m_termHistoryIndex = (int)pThis->m_termHistory.size();
+                    pThis->replaceCurrentInput("");
+                }
+            }
+            return 0;
+        }
+    }
+
+    if (pfnOld) {
+        return CallWindowProcA(pfnOld, hWnd, msg, wParam, lParam);
+    }
+    return DefWindowProcA(hWnd, msg, wParam, lParam);
+}
+
+void UIEngine::setCommandHandler(CommandHandler handler) {
+    m_commandHandler = handler;
+}
+
+void UIEngine::printTerminalText(const std::string& text) {
+    if (!m_hTerminalEdit || !IsWindow(m_hTerminalEdit)) return;
+
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, NULL, 0);
+    if (wlen <= 0) return;
+    std::vector<wchar_t> wbuf(wlen);
+    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, wbuf.data(), wlen);
+
+    int len = GetWindowTextLengthW(m_hTerminalEdit);
+    SendMessageW(m_hTerminalEdit, EM_SETSEL, (WPARAM)len, (LPARAM)len);
+    SendMessageW(m_hTerminalEdit, EM_REPLACESEL, FALSE, (LPARAM)wbuf.data());
+    SendMessageW(m_hTerminalEdit, EM_SCROLLCARET, 0, 0);
+}
+
+void UIEngine::clearTerminal() {
+    if (m_hTerminalEdit && IsWindow(m_hTerminalEdit)) {
+        SetWindowTextA(m_hTerminalEdit, "");
+        printPrompt();
+    }
+}
+
+void UIEngine::printPrompt() {
+    char cwd[MAX_PATH];
+    if (GetCurrentDirectoryA(MAX_PATH, cwd)) {
+        std::string prompt = "SpecTer [" + std::string(cwd) + "]> ";
+        printTerminalText(prompt);
+    } else {
+        printTerminalText("SpecTer [D:\\CustomVisualizerShell]> ");
+    }
+}
+
+void UIEngine::replaceCurrentInput(const std::string& input) {
+    if (!m_hTerminalEdit || !IsWindow(m_hTerminalEdit)) return;
+
+    int textLen = GetWindowTextLengthA(m_hTerminalEdit);
+    std::vector<char> buf(textLen + 1, 0);
+    GetWindowTextA(m_hTerminalEdit, buf.data(), textLen + 1);
+
+    std::string fullText(buf.data());
+    size_t lastPrompt = fullText.rfind("SpecTer [");
+    if (lastPrompt != std::string::npos) {
+        size_t arrowPos = fullText.find("]> ", lastPrompt);
+        if (arrowPos != std::string::npos) {
+            size_t inputStart = arrowPos + 3;
+            SendMessageA(m_hTerminalEdit, EM_SETSEL, (WPARAM)inputStart, (LPARAM)textLen);
+            SendMessageA(m_hTerminalEdit, EM_REPLACESEL, FALSE, (LPARAM)input.c_str());
+        }
+    }
 }
 
 } // namespace SpecTer

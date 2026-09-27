@@ -6,14 +6,17 @@
 #include <iomanip>
 
 int main() {
+    // 1. İkinci harici konsol penceresini gizle (Tek pencere birleşik düzen)
+    HWND hConsole = GetConsoleWindow();
+    if (hConsole != NULL && IsWindow(hConsole)) {
+        ShowWindow(hConsole, SW_HIDE);
+    }
+
     try {
         ShellCore shell;
         OSVisualizer::JobManager jobManager;
         OSVisualizer::Profiler profiler;
         SpecTer::UIEngine uiEngine;
-
-        // 4. Üye: Grafiksel GUI Dashboard penceresini başlat
-        uiEngine.initDashboardWindow();
 
         // 4. Üye <-> 2. Üye: GUI panelindeki slider ve butonlardan gelen Sandbox güncelleme callback'i
         uiEngine.setSandboxUpdateCallback([&jobManager, &shell](const OSVisualizer::SandboxConfig& cfg, bool enabled) {
@@ -28,7 +31,7 @@ int main() {
             if (jobManager.isEnabled()) {
                 OSVisualizer::SandboxResult result = jobManager.createJobAndApply(procInfo);
                 if (!result.success) {
-                    std::cerr << "[JobManager HATA]: " << result.errorMessage << "\n";
+                    uiEngine.printTerminalText("[JobManager HATA]: " + result.errorMessage + "\r\n");
                 }
             }
 
@@ -36,14 +39,7 @@ int main() {
             OSVisualizer::ProcessMetrics metrics;
             if (procInfo.hProcess != NULL) {
                 metrics = profiler.sampleProcess(procInfo.hProcess);
-                std::cout << "  +--------------------------------------------------+\n";
-                std::cout << "  |          PROFILER METRİKLERİ (3. Üye)            |\n";
-                std::cout << "  +--------------------------------------------------+\n";
-                std::cout << "  |  PID            : " << procInfo.dwProcessId << "\n";
-                std::cout << "  |  RAM (WorkingSet): " << metrics.workingSetSizeMB << " MB (Peak: " << metrics.peakWorkingSetSizeMB << " MB)\n";
-                std::cout << "  |  Açık Handle    : " << metrics.openHandleCount << "\n";
-                std::cout << "  |  Thread Sayısı  : " << metrics.threadCount << "\n";
-                std::cout << "  +--------------------------------------------------+\n\n";
+                uiEngine.setActiveProcess(procInfo.hProcess, procInfo.dwProcessId, "Harici Süreç");
             }
 
             // 4. Üye: Grafiksel GUI Dashboard Paneli Güncellemesi
@@ -69,10 +65,23 @@ int main() {
             return handled;
         });
 
-        shell.run();
+        // Sol Panele gömülü Terminal'den gelen komutları ShellCore'a bağlama
+        uiEngine.setCommandHandler([&shell, &uiEngine](const std::string& cmdLine) {
+            shell.executeLineStream(cmdLine, [&uiEngine](const std::string& outputChunk) {
+                if (outputChunk == "\x1B[CLEAR]") {
+                    uiEngine.clearTerminal();
+                } else {
+                    uiEngine.printTerminalText(outputChunk);
+                }
+            });
+        });
 
-        // Kapanışta GUI penceresini kapat
-        uiEngine.closeDashboard();
+        // 4. Üye: Birleşik Grafiksel Dashboard ve Gömülü Terminal Penceresini Başlat
+        if (uiEngine.initDashboardWindow()) {
+            while (uiEngine.isWindowOpen()) {
+                Sleep(100);
+            }
+        }
     }
     catch (const std::exception& e) {
         std::cerr << "[FATAL HATA]: " << e.what() << "\n";

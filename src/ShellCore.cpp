@@ -895,3 +895,171 @@ void ShellCore::writeAuditLog(const std::string& entry) const {
         logFile << "[" << std::put_time(&buf, "%Y-%m-%d %H:%M:%S") << "] " << entry << "\n";
     }
 }
+
+void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback outputCb) {
+    if (inputLine.empty() || !outputCb) return;
+
+    m_history.push_back(inputLine);
+    writeAuditLog("CMD: " + inputLine);
+
+    std::vector<std::string> args = parseCommand(inputLine);
+    if (args.empty()) return;
+
+    // 1. Benchmark süresi ölçümü (time komutu)
+    if (args[0] == "time" && args.size() > 1) {
+        LARGE_INTEGER freq, start, end;
+        QueryPerformanceFrequency(&freq);
+        QueryPerformanceCounter(&start);
+
+        std::string subCmdLine = inputLine.substr(5);
+        executeLineStream(subCmdLine, outputCb);
+
+        QueryPerformanceCounter(&end);
+        double elapsedMs = static_cast<double>(end.QuadPart - start.QuadPart) * 1000.0 / freq.QuadPart;
+        std::stringstream ss;
+        ss << "\r\n[⏱️ Süreç Çalışma Süresi (Benchmark): " << std::fixed << std::setprecision(2) << elapsedMs << " ms]\r\n\r\n";
+        outputCb(ss.str());
+        return;
+    }
+
+    // 2. Clear ekran temizleme
+    std::string cmdLow = args[0];
+    std::transform(cmdLow.begin(), cmdLow.end(), cmdLow.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (cmdLow == "cls" || cmdLow == "clear") {
+        outputCb("\x1B[CLEAR]");
+        return;
+    }
+
+    // 3. JobManager (Sandbox) Komut Hook'u
+    if (m_onJobCommand && m_onJobCommand(args)) {
+        outputCb("[JobManager]: Sandbox ayarı güncellendi.\r\n\r\n");
+        return;
+    }
+
+    // 4. Dahili (Built-in) Komutlar için std::cout yakalama
+    std::stringstream buffer;
+    std::streambuf* oldCout = std::cout.rdbuf(buffer.rdbuf());
+    std::streambuf* oldCerr = std::cerr.rdbuf(buffer.rdbuf());
+
+    bool isBuiltIn = executeBuiltIn(args);
+
+    std::cout.rdbuf(oldCout);
+    std::cerr.rdbuf(oldCerr);
+
+    if (isBuiltIn) {
+        std::string res = buffer.str();
+        std::string formatted;
+        for (char c : res) {
+            if (c == '\n' && (formatted.empty() || formatted.back() != '\r')) {
+                formatted += "\r\n";
+            } else {
+                formatted += c;
+            }
+        }
+        outputCb(formatted);
+        return;
+    }
+
+    // 5. Harici Uygulama Başlatma (CreateProcessA + Live Anonymous Pipe Streaming)
+    SECURITY_ATTRIBUTES saAttr;
+    saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
+    saAttr.bInheritHandle = TRUE;
+    saAttr.lpSecurityDescriptor = NULL;
+
+    HANDLE hChildStdOutRead = NULL, hChildStdOutWrite = NULL;
+    HANDLE hChildStdErrRead = NULL, hChildStdErrWrite = NULL;
+
+    if (!CreatePipe(&hChildStdOutRead, &hChildStdOutWrite, &saAttr, 0) ||
+        !CreatePipe(&hChildStdErrRead, &hChildStdErrWrite, &saAttr, 0)) {
+        outputCb("[ShellCore HATA]: STDOUT/STDERR Borusu (Pipe) olusturulamadi.\r\n");
+        return;
+    }
+    SetHandleInformation(hChildStdOutRead, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(hChildStdErrRead, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    si.hStdOutput = hChildStdOutWrite;
+    si.hStdError = hChildStdErrWrite;
+    si.dwFlags |= STARTF_USESTDHANDLES;
+
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&pi, sizeof(pi));
+
+    std::vector<char> cmdBuf(inputLine.begin(), inputLine.end());
+    cmdBuf.push_back('\0');
+
+    DWORD flags = m_startSuspended ? CREATE_SUSPENDED : 0;
+    BOOL bCreated = CreateProcessA(NULL, cmdBuf.data(), NULL, NULL, TRUE, flags, NULL, NULL, &si, &pi);
+
+    CloseHandle(hChildStdOutWrite);
+    CloseHandle(hChildStdErrWrite);
+
+    if (!bCreated) {
+        CloseHandle(hChildStdOutRead);
+        CloseHandle(hChildStdErrRead);
+        outputCb("[ShellCore HATA]: Komut veya çalıştırılabilir dosya bulunamadı: " + inputLine + "\r\n\r\n");
+        return;
+    }
+
+    ProcessInfo info;
+    info.success = true;
+    info.hProcess = pi.hProcess;
+    info.hThread = pi.hThread;
+    info.dwProcessId = pi.dwProcessId;
+    info.dwThreadId = pi.dwThreadId;
+
+    if (m_onProcessCreated) {
+        m_onProcessCreated(info);
+    }
+
+    if (m_startSuspended) {
+        ResumeThread(pi.hThread);
+    }
+
+    // Canlı Çıktı Okuma Döngüsü (Real-time Pipe Streaming)
+    char buf[1024];
+    DWORD dwRead = 0;
+
+    while (true) {
+        DWORD dwAvail = 0;
+        if (PeekNamedPipe(hChildStdOutRead, NULL, 0, NULL, &dwAvail, NULL) && dwAvail > 0) {
+            if (ReadFile(hChildStdOutRead, buf, sizeof(buf) - 1, &dwRead, NULL) && dwRead > 0) {
+                buf[dwRead] = '\0';
+                outputCb(std::string(buf, dwRead));
+            }
+        }
+
+        if (PeekNamedPipe(hChildStdErrRead, NULL, 0, NULL, &dwAvail, NULL) && dwAvail > 0) {
+            if (ReadFile(hChildStdErrRead, buf, sizeof(buf) - 1, &dwRead, NULL) && dwRead > 0) {
+                buf[dwRead] = '\0';
+                outputCb("[STDERR]: " + std::string(buf, dwRead));
+            }
+        }
+
+        DWORD waitRes = WaitForSingleObject(pi.hProcess, 50);
+        if (waitRes == WAIT_OBJECT_0) {
+            while (ReadFile(hChildStdOutRead, buf, sizeof(buf) - 1, &dwRead, NULL) && dwRead > 0) {
+                buf[dwRead] = '\0';
+                outputCb(std::string(buf, dwRead));
+            }
+            while (ReadFile(hChildStdErrRead, buf, sizeof(buf) - 1, &dwRead, NULL) && dwRead > 0) {
+                buf[dwRead] = '\0';
+                outputCb("[STDERR]: " + std::string(buf, dwRead));
+            }
+            break;
+        }
+    }
+
+    DWORD exitCode = 0;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    CloseHandle(hChildStdOutRead);
+    CloseHandle(hChildStdErrRead);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    std::stringstream exitMsg;
+    exitMsg << "\r\n[Process Exited with Code: " << exitCode << " | PID: " << pi.dwProcessId << "]\r\n\r\n";
+    outputCb(exitMsg.str());
+}

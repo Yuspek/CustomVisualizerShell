@@ -1,6 +1,7 @@
 #include "ShellCore.h"
 #include "JobManager.h"
 #include "Profiler.h"
+#include "UIEngine.h"
 #include <iostream>
 #include <iomanip>
 
@@ -9,9 +10,20 @@ int main() {
         ShellCore shell;
         OSVisualizer::JobManager jobManager;
         OSVisualizer::Profiler profiler;
+        SpecTer::UIEngine uiEngine;
 
-        // 2. Üye & 3. Üye Entegrasyonu: Süreç başlatıldığında Sandboxing & Profiling
-        shell.setProcessCreatedHook([&jobManager, &profiler](ProcessInfo& procInfo) {
+        // 4. Üye: Grafiksel GUI Dashboard penceresini başlat
+        uiEngine.initDashboardWindow();
+
+        // 4. Üye <-> 2. Üye: GUI panelindeki slider ve butonlardan gelen Sandbox güncelleme callback'i
+        uiEngine.setSandboxUpdateCallback([&jobManager, &shell](const OSVisualizer::SandboxConfig& cfg, bool enabled) {
+            jobManager.setConfig(cfg);
+            jobManager.setEnabled(enabled);
+            shell.setStartSuspended(enabled);
+        });
+
+        // 1, 2, 3 ve 4. Üye Entegrasyonu: Süreç başlatıldığında Sandboxing, Profiling ve GUI Güncellemesi
+        shell.setProcessCreatedHook([&jobManager, &profiler, &uiEngine](ProcessInfo& procInfo) {
             // 2. Üye: JobManager Sandbox Kısıtlamaları
             if (jobManager.isEnabled()) {
                 OSVisualizer::SandboxResult result = jobManager.createJobAndApply(procInfo);
@@ -21,8 +33,9 @@ int main() {
             }
 
             // 3. Üye: Profiler Canlı Süreç Metrikleri
+            OSVisualizer::ProcessMetrics metrics;
             if (procInfo.hProcess != NULL) {
-                OSVisualizer::ProcessMetrics metrics = profiler.sampleProcess(procInfo.hProcess);
+                metrics = profiler.sampleProcess(procInfo.hProcess);
                 std::cout << "  +--------------------------------------------------+\n";
                 std::cout << "  |          PROFILER METRİKLERİ (3. Üye)            |\n";
                 std::cout << "  +--------------------------------------------------+\n";
@@ -32,18 +45,34 @@ int main() {
                 std::cout << "  |  Thread Sayısı  : " << metrics.threadCount << "\n";
                 std::cout << "  +--------------------------------------------------+\n\n";
             }
+
+            // 4. Üye: Grafiksel GUI Dashboard Paneli Güncellemesi
+            SpecTer::DashboardState state;
+            state.metrics = metrics;
+            state.sandboxConfig = jobManager.getConfig();
+            state.sandboxEnabled = jobManager.isEnabled();
+            state.activePID = procInfo.dwProcessId;
+            state.processName = procInfo.success ? "Active Process" : "None";
+            uiEngine.updateDashboard(state);
         });
 
         // 2. Üye: Shell'deki "sandbox" / "job" komutlarını JobManager'a yönlendiren hook
-        // Komut işlendikten sonra sandbox durumuna göre süreç başlatma modunu günceller
-        shell.setJobCommandHook([&jobManager, &shell](const std::vector<std::string>& args) -> bool {
+        shell.setJobCommandHook([&jobManager, &shell, &uiEngine](const std::vector<std::string>& args) -> bool {
             bool handled = jobManager.handleCommand(args);
-            // Sandbox açıldıysa süreçler CREATE_SUSPENDED ile başlatılsın ki Job ataması yapılabilsin
             shell.setStartSuspended(jobManager.isEnabled());
+
+            // GUI panel durumunu da güncelle
+            SpecTer::DashboardState state;
+            state.sandboxConfig = jobManager.getConfig();
+            state.sandboxEnabled = jobManager.isEnabled();
+            uiEngine.updateDashboard(state);
             return handled;
         });
 
         shell.run();
+
+        // Kapanışta GUI penceresini kapat
+        uiEngine.closeDashboard();
     }
     catch (const std::exception& e) {
         std::cerr << "[FATAL HATA]: " << e.what() << "\n";

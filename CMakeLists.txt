@@ -15,6 +15,7 @@ set(SOURCES
     src/ShellCore.cpp
     src/JobManager.cpp
     src/Profiler.cpp
+    src/UIEngine.cpp
 )
 
 # Headers list (for IDE grouping)
@@ -43,6 +44,8 @@ if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE
         kernel32
         user32
+        gdi32
+        comctl32
         psapi
         advapi32
     )

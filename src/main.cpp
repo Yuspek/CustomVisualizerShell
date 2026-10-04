@@ -5,13 +5,8 @@
 #include <iostream>
 #include <iomanip>
 
-int main() {
-    // 1. İkinci harici konsol penceresini gizle (Tek pencere birleşik düzen)
-    HWND hConsole = GetConsoleWindow();
-    if (hConsole != NULL && IsWindow(hConsole)) {
-        ShowWindow(hConsole, SW_HIDE);
-    }
-
+// WIN32 SUBSYSTEM: Konsol penceresi hiç oluşturulmaz, doğrudan GUI başlar
+int WINAPI WinMain(HINSTANCE /*hInstance*/, HINSTANCE /*hPrevInstance*/, LPSTR /*lpCmdLine*/, int /*nCmdShow*/) {
     try {
         ShellCore shell;
         OSVisualizer::JobManager jobManager;
@@ -78,17 +73,26 @@ int main() {
 
         // 4. Üye: Birleşik Grafiksel Dashboard ve Gömülü Terminal Penceresini Başlat
         if (uiEngine.initDashboardWindow()) {
+            // Gömülü Terminal'e karşılama mesajı yaz
+            uiEngine.printTerminalText(
+                "=======================================================================\r\n"
+                "  SpecTer v1.0 (Milestone 1-3 Entegre: ShellCore + JobManager + Profiler)\r\n"
+                "  İpucu: 'help' yazarak tüm komutları ve modül mimarisini görebilirsiniz.\r\n"
+                "=======================================================================\r\n\r\n"
+            );
+            uiEngine.printPrompt();
+
             while (uiEngine.isWindowOpen()) {
                 Sleep(100);
             }
         }
     }
     catch (const std::exception& e) {
-        std::cerr << "[FATAL HATA]: " << e.what() << "\n";
+        MessageBoxA(NULL, e.what(), "SpecTer FATAL HATA", MB_OK | MB_ICONERROR);
         return 1;
     }
     catch (...) {
-        std::cerr << "[FATAL HATA]: Bilinmeyen bir sistem hatası oluştu.\n";
+        MessageBoxA(NULL, "Bilinmeyen bir sistem hatası oluştu.", "SpecTer FATAL HATA", MB_OK | MB_ICONERROR);
         return 1;
     }
 

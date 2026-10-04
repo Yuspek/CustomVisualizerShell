@@ -10,7 +10,8 @@
 #include <ctime>
 
 ShellCore::ShellCore() : m_running(false), m_onProcessCreated(nullptr), m_onJobCommand(nullptr), m_startSuspended(false), m_hConsole(NULL) {
-    initConsoleWindow();
+    // initConsoleWindow() çağrısı kaldırıldı: Artık konsol penceresi yok (FreeConsole),
+    // terminal gömülü GUI EDIT kontrolünde çalışıyor.
 }
 
 ShellCore::~ShellCore() {}
@@ -896,6 +897,20 @@ void ShellCore::writeAuditLog(const std::string& entry) const {
     }
 }
 
+static std::string OemToUtf8(const std::string& oemStr) {
+    if (oemStr.empty()) return "";
+    int wlen = MultiByteToWideChar(CP_OEMCP, 0, oemStr.c_str(), static_cast<int>(oemStr.length()), NULL, 0);
+    if (wlen <= 0) return oemStr;
+    std::vector<wchar_t> wbuf(wlen);
+    MultiByteToWideChar(CP_OEMCP, 0, oemStr.c_str(), static_cast<int>(oemStr.length()), wbuf.data(), wlen);
+
+    int ulen = WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), wlen, NULL, 0, NULL, NULL);
+    if (ulen <= 0) return oemStr;
+    std::string utf8Str(ulen, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), wlen, &utf8Str[0], ulen, NULL, NULL);
+    return utf8Str;
+}
+
 void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback outputCb) {
     if (inputLine.empty() || !outputCb) return;
 
@@ -930,13 +945,15 @@ void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback o
         return;
     }
 
-    // 3. JobManager (Sandbox) Komut Hook'u
-    if (m_onJobCommand && m_onJobCommand(args)) {
-        outputCb("[JobManager]: Sandbox ayarı güncellendi.\r\n\r\n");
+    // 3. exit/quit komutu: REPL döngüsünü durdurup GUI'yi kapatır
+    if (cmdLow == "exit" || cmdLow == "quit") {
+        m_running = false;
+        outputCb("SpecTer kapatılıyor...\r\n");
         return;
     }
 
     // 4. Dahili (Built-in) Komutlar için std::cout yakalama
+    //    (sandbox/job komutları da executeBuiltIn içinden m_onJobCommand hook'una yönlendirilir)
     std::stringstream buffer;
     std::streambuf* oldCout = std::cout.rdbuf(buffer.rdbuf());
     std::streambuf* oldCerr = std::cerr.rdbuf(buffer.rdbuf());
@@ -993,6 +1010,14 @@ void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback o
     DWORD flags = m_startSuspended ? CREATE_SUSPENDED : 0;
     BOOL bCreated = CreateProcessA(NULL, cmdBuf.data(), NULL, NULL, TRUE, flags, NULL, NULL, &si, &pi);
 
+    if (!bCreated) {
+        // Doğrudan çalıştırma başarısız olduysa CMD yerleşik komutu olarak dene (dir, ipconfig vb.)
+        std::string fallbackCmd = "cmd.exe /c " + inputLine;
+        std::vector<char> fallbackBuf(fallbackCmd.begin(), fallbackCmd.end());
+        fallbackBuf.push_back('\0');
+        bCreated = CreateProcessA(NULL, fallbackBuf.data(), NULL, NULL, TRUE, flags, NULL, NULL, &si, &pi);
+    }
+
     CloseHandle(hChildStdOutWrite);
     CloseHandle(hChildStdErrWrite);
 
@@ -1018,7 +1043,7 @@ void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback o
         ResumeThread(pi.hThread);
     }
 
-    // Canlı Çıktı Okuma Döngüsü (Real-time Pipe Streaming)
+    // Canlı Çıktı Okuma Döngüsü (Real-time Pipe Streaming + OEM to UTF-8 Türkçe karakter dönüşümü)
     char buf[1024];
     DWORD dwRead = 0;
 
@@ -1027,14 +1052,14 @@ void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback o
         if (PeekNamedPipe(hChildStdOutRead, NULL, 0, NULL, &dwAvail, NULL) && dwAvail > 0) {
             if (ReadFile(hChildStdOutRead, buf, sizeof(buf) - 1, &dwRead, NULL) && dwRead > 0) {
                 buf[dwRead] = '\0';
-                outputCb(std::string(buf, dwRead));
+                outputCb(OemToUtf8(std::string(buf, dwRead)));
             }
         }
 
         if (PeekNamedPipe(hChildStdErrRead, NULL, 0, NULL, &dwAvail, NULL) && dwAvail > 0) {
             if (ReadFile(hChildStdErrRead, buf, sizeof(buf) - 1, &dwRead, NULL) && dwRead > 0) {
                 buf[dwRead] = '\0';
-                outputCb("[STDERR]: " + std::string(buf, dwRead));
+                outputCb("[STDERR]: " + OemToUtf8(std::string(buf, dwRead)));
             }
         }
 
@@ -1042,11 +1067,11 @@ void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback o
         if (waitRes == WAIT_OBJECT_0) {
             while (ReadFile(hChildStdOutRead, buf, sizeof(buf) - 1, &dwRead, NULL) && dwRead > 0) {
                 buf[dwRead] = '\0';
-                outputCb(std::string(buf, dwRead));
+                outputCb(OemToUtf8(std::string(buf, dwRead)));
             }
             while (ReadFile(hChildStdErrRead, buf, sizeof(buf) - 1, &dwRead, NULL) && dwRead > 0) {
                 buf[dwRead] = '\0';
-                outputCb("[STDERR]: " + std::string(buf, dwRead));
+                outputCb("[STDERR]: " + OemToUtf8(std::string(buf, dwRead)));
             }
             break;
         }

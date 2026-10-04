@@ -169,9 +169,6 @@ void UIEngine::setSandboxUpdateCallback(SandboxUpdateCallback callback) {
     m_sandboxCallback = callback;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Arka Plan GUI Thread İşlevi (Tek Birleşik Pencere - Single Split Window)
-// ─────────────────────────────────────────────────────────────────────────────
 void UIEngine::guiThreadFunc(HINSTANCE hInstance) {
     if (!hInstance) {
         hInstance = GetModuleHandle(NULL);
@@ -222,7 +219,6 @@ void UIEngine::guiThreadFunc(HINSTANCE hInstance) {
     m_hWnd = hWnd;
 
     setupControls(hWnd);
-    printPrompt();
 
     ShowWindow(hWnd, SW_SHOW);
     UpdateWindow(hWnd);

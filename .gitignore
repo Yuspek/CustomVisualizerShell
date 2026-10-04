@@ -29,6 +29,7 @@ compile_commands.json
 *.ilk
 *.exp
 
-# OS Generated Files
+# OS & Log Generated Files
 Thumbs.db
 Desktop.ini
+*.log

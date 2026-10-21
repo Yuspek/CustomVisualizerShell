@@ -1,6 +1,6 @@
 # SpecTer (Observability & Sandboxed CLI/GUI Terminal)
 
-Windows İşletim Sistemi kernel seviyesinde süreç yönetimi, canlı metrik izleme, sandboxing (güvenlik kısıtlaması) ve profesyonel grafiksel görselleştirme paneline sahip modüler C++ uygulaması.
+Windows İşletim Sistemi kernel seviyesinde süreç yönetimi, canlı metrik izleme, sandboxing (güvenlik kısıtlaması) ve profesyonel grafiksel görselleştirme paneline sahip modüler C++ uygulaması. 
 
 ![SpecTer Dashboard](specter_dashboard.jpg)
 

@@ -103,7 +103,7 @@ void ShellCore::run() {
         }
     }
 
-    std::cout << "OS-Visualizer Shell kapatiliyor. Hoscakalin!\n";
+    std::cout << "SpecTer kapatılıyor. Hoşçakalın!\n";
 }
 
 std::vector<std::string> ShellCore::parseCommand(const std::string& input) {

@@ -109,6 +109,7 @@ private:
     void handleHScroll(HWND hWnd, WPARAM wParam, LPARAM lParam);
     void handleCommand(HWND hWnd, WPARAM wParam, LPARAM lParam);
     void onPaint(HWND hWnd);
+    void onDrawItem(LPDRAWITEMSTRUCT pDIS);
     void replaceCurrentInput(const std::string& input);
 
 private:

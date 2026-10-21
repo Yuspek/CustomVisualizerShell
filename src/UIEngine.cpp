@@ -14,19 +14,19 @@
 
 namespace SpecTer {
 
-// ── Renk Paleti (Sleek Dark Theme / Cyberpunk Glow) ──
+// ── Ultra-Modern Renk Paleti (Cyberpunk Slate & Neon Telemetry) ──
 namespace Theme {
-    const COLORREF BG_MAIN         = RGB(15, 20, 28);     // Derin lacivert/antrasit
-    const COLORREF CARD_BG         = RGB(24, 32, 47);     // Kart panel arkaplanı
-    const COLORREF CARD_BORDER     = RGB(38, 50, 72);     // Kart çerçevesi
-    const COLORREF HEADER_BG       = RGB(19, 26, 38);     // Üst bar
-    const COLORREF TEXT_PRIMARY    = RGB(240, 245, 255);  // Parlak beyaz metin
-    const COLORREF TEXT_MUTED      = RGB(130, 148, 172);  // Soluk açıklama metni
+    const COLORREF BG_MAIN         = RGB(11, 15, 23);     // Derin modern uzay siyahı / antrasit
+    const COLORREF CARD_BG         = RGB(18, 25, 38);     // Modern kart panel arkaplanı
+    const COLORREF CARD_BORDER     = RGB(36, 49, 72);     // İnce kart çerçevesi
+    const COLORREF HEADER_BG       = RGB(14, 20, 30);     // Üst başlık barı
+    const COLORREF TEXT_PRIMARY    = RGB(242, 246, 255);  // Parlak beyaz metin
+    const COLORREF TEXT_MUTED      = RGB(130, 148, 172);  // Muted açıklama metni
     const COLORREF ACCENT_CYAN     = RGB(0, 229, 255);    // CPU / Neon Camgöbeği
     const COLORREF ACCENT_GREEN    = RGB(0, 230, 118);    // RAM / Neon Yeşil
     const COLORREF ACCENT_AMBER    = RGB(255, 171, 0);    // Uyarı / Turuncu
-    const COLORREF ACCENT_RED      = RGB(255, 82, 82);     // Kritik / Neon Kırmızı
-    const COLORREF GRID_COLOR      = RGB(32, 42, 60);     // Grafik ızgara çizgisi
+    const COLORREF ACCENT_RED      = RGB(255, 82, 82);    // Kritik / Kırmızı
+    const COLORREF GRID_COLOR      = RGB(28, 38, 56);     // Grafik ızgara çizgisi
 }
 
 // ── UTF-8 Türkçe Karakter Çizim Yardımcıları (GDI TextOutW & DrawTextW) ──
@@ -59,7 +59,7 @@ UIEngine::UIEngine()
     , m_sandboxCallback(nullptr)
     , m_hTerminalEdit(NULL)
     , m_hTermFont(NULL)
-    , m_hTermBrush(CreateSolidBrush(RGB(12, 16, 24)))
+    , m_hTermBrush(CreateSolidBrush(RGB(10, 14, 20)))
     , m_pfnOldEditProc(nullptr)
     , m_commandHandler(nullptr)
     , m_hTrackRam(NULL)
@@ -296,6 +296,13 @@ LRESULT CALLBACK UIEngine::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         }
         break;
 
+    case WM_DRAWITEM:
+        if (pThis) {
+            pThis->onDrawItem(reinterpret_cast<LPDRAWITEMSTRUCT>(lParam));
+            return TRUE;
+        }
+        break;
+
     case WM_HSCROLL:
         if (pThis) {
             pThis->handleHScroll(hWnd, wParam, lParam);
@@ -309,12 +316,13 @@ LRESULT CALLBACK UIEngine::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
         HWND hCtrl = (HWND)lParam;
         if (pThis && hCtrl == pThis->m_hTerminalEdit) {
             SetTextColor(hdcStatic, RGB(0, 230, 118)); // Cyberpunk Neon Green Terminal Text
-            SetBkColor(hdcStatic, RGB(12, 16, 24));    // Dark Terminal Background
+            SetBkColor(hdcStatic, RGB(10, 14, 20));    // Dark Terminal Background
             if (!pThis->m_hTermBrush) {
-                pThis->m_hTermBrush = CreateSolidBrush(RGB(12, 16, 24));
+                pThis->m_hTermBrush = CreateSolidBrush(RGB(10, 14, 20));
             }
             return (LRESULT)pThis->m_hTermBrush;
         }
+        // Statik metin ve trackbar zeminlerini kart rengine uydur (gri kutu olmasın)
         SetTextColor(hdcStatic, Theme::TEXT_PRIMARY);
         SetBkColor(hdcStatic, Theme::CARD_BG);
         if (pThis) {
@@ -338,16 +346,16 @@ LRESULT CALLBACK UIEngine::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Win32 Kontrollerinin Kurulumu (Sağ Panel Kart 3: x: 705, y: 475)
+// Win32 Kontrollerinin Kurulumu (Modern Düzen)
 // ─────────────────────────────────────────────────────────────────────────────
 void UIEngine::setupControls(HWND hWnd) {
     HINSTANCE hInst = (HINSTANCE)GetWindowLongPtrA(hWnd, GWLP_HINSTANCE);
 
-    // 0. Sol Panel Gömülü Terminal Kontrolü (x: 15, y: 75, w: 675, h: 665)
+    // 0. Sol Panel Gömülü Terminal Kontrolü (x: 18, y: 80, w: 668, h: 660)
     m_hTerminalEdit = CreateWindowExA(
         0, "EDIT", "",
         WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL,
-        15, 75, 675, 665,
+        18, 80, 668, 660,
         hWnd, (HMENU)100, hInst, NULL
     );
 
@@ -365,54 +373,61 @@ void UIEngine::setupControls(HWND hWnd) {
     SetWindowLongPtrA(m_hTerminalEdit, GWLP_USERDATA, (LONG_PTR)this);
     m_pfnOldEditProc = (WNDPROC)SetWindowLongPtrA(m_hTerminalEdit, GWLP_WNDPROC, (LONG_PTR)TerminalEditProc);
 
+    HFONT hFontLabel = CreateFontA(14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+
     // 1. RAM Slider Etiketi
-    CreateWindowA("STATIC", "RAM Limiti (MB):",
+    HWND hLblRam = CreateWindowA("STATIC", "RAM Sınırı (MB):",
         WS_CHILD | WS_VISIBLE | SS_LEFT,
-        720, 510, 120, 20,
+        725, 510, 130, 20,
         hWnd, NULL, hInst, NULL);
+    SendMessage(hLblRam, WM_SETFONT, (WPARAM)hFontLabel, TRUE);
 
     m_hLblRamVal = CreateWindowA("STATIC", "256 MB",
         WS_CHILD | WS_VISIBLE | SS_RIGHT,
-        845, 510, 60, 20,
+        940, 510, 95, 20,
         hWnd, NULL, hInst, NULL);
+    SendMessage(m_hLblRamVal, WM_SETFONT, (WPARAM)hFontLabel, TRUE);
 
     // RAM Trackbar (64 MB - 2048 MB)
     m_hTrackRam = CreateWindowA(TRACKBAR_CLASSA, "RAM Slider",
         WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS | TBS_NOTICKS,
-        720, 530, 185, 25,
+        725, 532, 310, 26,
         hWnd, (HMENU)IDC_TRACK_RAM, hInst, NULL);
     SendMessage(m_hTrackRam, TBM_SETRANGE, TRUE, MAKELPARAM(64, 2048));
     SendMessage(m_hTrackRam, TBM_SETPOS, TRUE, 256);
 
     // 2. CPU Slider Etiketi
-    CreateWindowA("STATIC", "CPU Limiti (%):",
+    HWND hLblCpu = CreateWindowA("STATIC", "CPU Kotası (%):",
         WS_CHILD | WS_VISIBLE | SS_LEFT,
-        720, 565, 110, 20,
+        725, 568, 130, 20,
         hWnd, NULL, hInst, NULL);
+    SendMessage(hLblCpu, WM_SETFONT, (WPARAM)hFontLabel, TRUE);
 
     m_hLblCpuVal = CreateWindowA("STATIC", "%50",
         WS_CHILD | WS_VISIBLE | SS_RIGHT,
-        855, 565, 50, 20,
+        940, 568, 95, 20,
         hWnd, NULL, hInst, NULL);
+    SendMessage(m_hLblCpuVal, WM_SETFONT, (WPARAM)hFontLabel, TRUE);
 
     // CPU Trackbar (10% - 100%)
     m_hTrackCpu = CreateWindowA(TRACKBAR_CLASSA, "CPU Slider",
         WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS | TBS_NOTICKS,
-        720, 585, 185, 25,
+        725, 590, 310, 26,
         hWnd, (HMENU)IDC_TRACK_CPU, hInst, NULL);
     SendMessage(m_hTrackCpu, TBM_SETRANGE, TRUE, MAKELPARAM(10, 100));
     SendMessage(m_hTrackCpu, TBM_SETPOS, TRUE, 50);
 
-    // 3. Sandbox Toggle Butonu
+    // 3. Sandbox Toggle Butonu (Özel Cyberpunk Çizim: BS_OWNERDRAW)
     m_hBtnToggleSandbox = CreateWindowA("BUTTON", "SANDBOX: KAPALI",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        720, 630, 150, 35,
+        WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+        725, 638, 150, 42,
         hWnd, (HMENU)IDC_BTN_TOGGLE_SB, hInst, NULL);
 
-    // 4. Uygula (Apply) Butonu
+    // 4. Uygula (Apply) Butonu (Özel Cyberpunk Çizim: BS_OWNERDRAW)
     m_hBtnApply = CreateWindowA("BUTTON", "LİMİTLERİ UYGULA",
-        WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-        880, 630, 150, 35,
+        WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+        885, 638, 150, 42,
         hWnd, (HMENU)IDC_BTN_APPLY, hInst, NULL);
 }
 
@@ -434,13 +449,14 @@ void UIEngine::handleCommand(HWND /*hWnd*/, WPARAM wParam, LPARAM /*lParam*/) {
     if (id == IDC_BTN_TOGGLE_SB) {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         m_state.sandboxEnabled = !m_state.sandboxEnabled;
-        if (m_state.sandboxEnabled) {
-            SetWindowTextA(m_hBtnToggleSandbox, "SANDBOX: AKTİF [ON]");
-        } else {
-            SetWindowTextA(m_hBtnToggleSandbox, "SANDBOX: KAPALI [OFF]");
-        }
         if (m_sandboxCallback) {
             m_sandboxCallback(m_state.sandboxConfig, m_state.sandboxEnabled);
+        }
+        if (m_hBtnToggleSandbox && IsWindow(m_hBtnToggleSandbox)) {
+            InvalidateRect(m_hBtnToggleSandbox, NULL, TRUE);
+        }
+        if (m_hWnd && IsWindow(m_hWnd)) {
+            InvalidateRect(m_hWnd, NULL, FALSE);
         }
     } else if (id == IDC_BTN_APPLY) {
         int ramVal = (int)SendMessage(m_hTrackRam, TBM_GETPOS, 0, 0);
@@ -453,11 +469,81 @@ void UIEngine::handleCommand(HWND /*hWnd*/, WPARAM wParam, LPARAM /*lParam*/) {
         if (m_sandboxCallback) {
             m_sandboxCallback(m_state.sandboxConfig, m_state.sandboxEnabled);
         }
+        if (m_hBtnApply && IsWindow(m_hBtnApply)) {
+            InvalidateRect(m_hBtnApply, NULL, TRUE);
+        }
+        if (m_hWnd && IsWindow(m_hWnd)) {
+            InvalidateRect(m_hWnd, NULL, FALSE);
+        }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Double-Buffered GDI Çizimi (Tek Pencere Split Layout)
+// Modern Owner-Draw Buton Çizimi (Cyberpunk Glowing Pill Buttons)
+// ─────────────────────────────────────────────────────────────────────────────
+void UIEngine::onDrawItem(LPDRAWITEMSTRUCT pDIS) {
+    if (!pDIS) return;
+    HDC hdc = pDIS->hDC;
+    RECT rc = pDIS->rcItem;
+    bool isPressed = (pDIS->itemState & ODS_SELECTED) != 0;
+
+    SetBkMode(hdc, TRANSPARENT);
+    HFONT hBtnFont = CreateFontA(14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+    HFONT hOldFont = (HFONT)SelectObject(hdc, hBtnFont);
+
+    if (pDIS->CtlID == IDC_BTN_TOGGLE_SB) {
+        bool sbEnabled = false;
+        {
+            std::lock_guard<std::mutex> lock(m_stateMutex);
+            sbEnabled = m_state.sandboxEnabled;
+        }
+
+        COLORREF bgCol = sbEnabled 
+            ? (isPressed ? RGB(10, 60, 32) : RGB(16, 75, 42)) 
+            : (isPressed ? RGB(45, 20, 24) : RGB(36, 22, 28));
+        COLORREF borderCol = sbEnabled ? Theme::ACCENT_GREEN : RGB(220, 60, 60);
+
+        HBRUSH hBrush = CreateSolidBrush(bgCol);
+        HPEN hPen = CreatePen(PS_SOLID, 2, borderCol);
+        HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hBrush);
+        HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
+
+        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 12, 12);
+
+        SelectObject(hdc, hOldBrush);
+        SelectObject(hdc, hOldPen);
+        DeleteObject(hBrush);
+        DeleteObject(hPen);
+
+        std::string text = sbEnabled ? "🛡️ SANDBOX: AKTİF" : "⚪ SANDBOX: KAPALI";
+        DrawTextUtf8(hdc, text, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE, sbEnabled ? Theme::ACCENT_GREEN : RGB(245, 120, 120));
+    }
+    else if (pDIS->CtlID == IDC_BTN_APPLY) {
+        COLORREF bgCol = isPressed ? RGB(10, 48, 78) : RGB(15, 62, 102);
+        COLORREF borderCol = Theme::ACCENT_CYAN;
+
+        HBRUSH hBrush = CreateSolidBrush(bgCol);
+        HPEN hPen = CreatePen(PS_SOLID, 2, borderCol);
+        HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hBrush);
+        HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
+
+        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 12, 12);
+
+        SelectObject(hdc, hOldBrush);
+        SelectObject(hdc, hOldPen);
+        DeleteObject(hBrush);
+        DeleteObject(hPen);
+
+        DrawTextUtf8(hdc, "⚡ LİMİTLERİ UYGULA", &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE, RGB(255, 255, 255));
+    }
+
+    SelectObject(hdc, hOldFont);
+    DeleteObject(hBtnFont);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Double-Buffered GDI Çizimi (Modern Rounded Cards & Sleek Telemetry)
 // ─────────────────────────────────────────────────────────────────────────────
 void UIEngine::onPaint(HWND hWnd) {
     PAINTSTRUCT ps;
@@ -484,11 +570,13 @@ void UIEngine::onPaint(HWND hWnd) {
         historyCopy.assign(m_history.begin(), m_history.end());
     }
 
-    HFONT hFontTitle = CreateFontA(20, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    HFONT hFontTitle = CreateFontA(21, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
-    HFONT hFontSub = CreateFontA(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    HFONT hFontSub = CreateFontA(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
-    HFONT hFontBold = CreateFontA(15, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    HFONT hFontBold = CreateFontA(14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+    HFONT hFontGaugeVal = CreateFontA(28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
 
     SetBkMode(hdc, TRANSPARENT);
@@ -508,76 +596,102 @@ void UIEngine::onPaint(HWND hWnd) {
     SelectObject(hdc, hOldPen);
     DeleteObject(hBorderPen);
 
+    // Yeşil Durum LED'i
+    HBRUSH hDotBrush = CreateSolidBrush(Theme::ACCENT_GREEN);
+    HBRUSH hOldDot = (HBRUSH)SelectObject(hdc, hDotBrush);
+    Ellipse(hdc, 16, 16, 26, 26);
+    SelectObject(hdc, hOldDot);
+    DeleteObject(hDotBrush);
+
     SelectObject(hdc, hFontTitle);
-    TextOutUtf8(hdc, 15, 8, "SPECTER", Theme::ACCENT_CYAN);
+    TextOutUtf8(hdc, 34, 8, "SPECTER", Theme::ACCENT_CYAN);
 
     SelectObject(hdc, hFontSub);
-    TextOutUtf8(hdc, 110, 12, ":: Kernel Observability & Sandboxed CLI/GUI Terminal", Theme::TEXT_MUTED);
+    TextOutUtf8(hdc, 130, 13, ":: Kernel Observability & Sandboxed CLI/GUI Terminal", Theme::TEXT_MUTED);
 
-    std::string procText = "Aktif Süreç: " + (stateCopy.processName.empty() ? "Yok (Shell Beklemede)" : stateCopy.processName);
+    // Aktif Süreç Rozeti (Ortada)
+    std::string procText = "⚡ Süreç: " + (stateCopy.processName.empty() ? "Beklemede..." : stateCopy.processName);
     if (stateCopy.activePID > 0) {
         procText += " [PID: " + std::to_string(stateCopy.activePID) + "]";
     }
     SelectObject(hdc, hFontBold);
-    TextOutUtf8(hdc, 650, 10, procText, Theme::TEXT_PRIMARY);
+    TextOutUtf8(hdc, 650, 11, procText, Theme::TEXT_PRIMARY);
 
+    // Sağ Üst Sandbox Durum Rozeti (Yuvarlatılmış Pill)
     RECT rBadge = { width - 210, 6, width - 15, 34 };
-    HBRUSH hBadgeBrush = CreateSolidBrush(stateCopy.sandboxEnabled ? RGB(10, 60, 30) : RGB(50, 30, 30));
-    FillRect(hdc, &rBadge, hBadgeBrush);
+    HBRUSH hBadgeBrush = CreateSolidBrush(stateCopy.sandboxEnabled ? RGB(12, 60, 32) : RGB(48, 22, 26));
+    HPEN hBadgePen = CreatePen(PS_SOLID, 1, stateCopy.sandboxEnabled ? Theme::ACCENT_GREEN : Theme::ACCENT_RED);
+    SelectObject(hdc, hBadgeBrush);
+    SelectObject(hdc, hBadgePen);
+    RoundRect(hdc, rBadge.left, rBadge.top, rBadge.right, rBadge.bottom, 10, 10);
     DeleteObject(hBadgeBrush);
-    FrameRect(hdc, &rBadge, (HBRUSH)GetStockObject(WHITE_BRUSH));
+    DeleteObject(hBadgePen);
 
-    std::string badgeStr = stateCopy.sandboxEnabled ? "SANDBOX: AKTİF" : "SANDBOX: DEVRE DIŞI";
+    std::string badgeStr = stateCopy.sandboxEnabled ? "🛡️ SANDBOX: AKTİF" : "⚪ SANDBOX: KAPALI";
     DrawTextUtf8(hdc, badgeStr, &rBadge, DT_CENTER | DT_VCENTER | DT_SINGLELINE, stateCopy.sandboxEnabled ? Theme::ACCENT_GREEN : Theme::ACCENT_RED);
 
-    // Sol Terminal Bölgesi Çerçevesi (x: 10, y: 45, w: 685, h: 710)
-    RECT rLeftFrame = { 10, 45, 695, 755 };
+    // ─────────────────────────────────────────────────────────────────────────
+    // SOL TERMİNAL BÖLGESİ ÇERÇEVESİ (x: 12, y: 48, w: 680, h: 708)
+    // ─────────────────────────────────────────────────────────────────────────
+    RECT rLeftFrame = { 12, 48, 692, 756 };
     HBRUSH hLeftFrameBrush = CreateSolidBrush(RGB(10, 14, 20));
-    FillRect(hdc, &rLeftFrame, hLeftFrameBrush);
+    HPEN hLeftPen = CreatePen(PS_SOLID, 1, Theme::CARD_BORDER);
+    SelectObject(hdc, hLeftFrameBrush);
+    SelectObject(hdc, hLeftPen);
+    RoundRect(hdc, rLeftFrame.left, rLeftFrame.top, rLeftFrame.right, rLeftFrame.bottom, 14, 14);
     DeleteObject(hLeftFrameBrush);
-    FrameRect(hdc, &rLeftFrame, (HBRUSH)GetStockObject(GRAY_BRUSH));
+    DeleteObject(hLeftPen);
+
+    // Terminal Başlık Çubuğu
+    SelectObject(hdc, hFontBold);
+    TextOutUtf8(hdc, 24, 56, "📟 GÖMÜLÜ TERMİNAL (ShellCore REPL v1.0)", Theme::ACCENT_GREEN);
+
+    HPEN hTermSep = CreatePen(PS_SOLID, 1, Theme::CARD_BORDER);
+    SelectObject(hdc, hTermSep);
+    MoveToEx(hdc, 20, 76, NULL);
+    LineTo(hdc, 684, 76);
+    DeleteObject(hTermSep);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // SAĞ PANEL KART YARDIMCISI
+    // SAĞ PANEL YUVARLATILMIŞ KART ÇİZİM YARDIMCISI
     // ─────────────────────────────────────────────────────────────────────────
     auto drawCard = [&](int x, int y, int w, int h, const std::string& title) {
-        RECT rc = { x, y, x + w, y + h };
-        HBRUSH hCardBrush = CreateSolidBrush(Theme::CARD_BG);
-        FillRect(hdc, &rc, hCardBrush);
-        DeleteObject(hCardBrush);
-
         HPEN hCardPen = CreatePen(PS_SOLID, 1, Theme::CARD_BORDER);
-        HPEN hOldCardPen = (HPEN)SelectObject(hdc, hCardPen);
-        HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
-        Rectangle(hdc, x, y, x + w, y + h);
-        SelectObject(hdc, hOldBrush);
-        SelectObject(hdc, hOldCardPen);
+        HBRUSH hCardBrush = CreateSolidBrush(Theme::CARD_BG);
+        HPEN hOldP = (HPEN)SelectObject(hdc, hCardPen);
+        HBRUSH hOldB = (HBRUSH)SelectObject(hdc, hCardBrush);
+
+        RoundRect(hdc, x, y, x + w, y + h, 14, 14);
+
+        SelectObject(hdc, hOldB);
+        SelectObject(hdc, hOldP);
+        DeleteObject(hCardBrush);
         DeleteObject(hCardPen);
 
         SelectObject(hdc, hFontBold);
-        TextOutUtf8(hdc, x + 12, y + 8, title, Theme::ACCENT_CYAN);
+        TextOutUtf8(hdc, x + 16, y + 10, title, Theme::ACCENT_CYAN);
 
         HPEN hSepPen = CreatePen(PS_SOLID, 1, Theme::CARD_BORDER);
-        HPEN hOldSepPen = (HPEN)SelectObject(hdc, hSepPen);
-        MoveToEx(hdc, x + 12, y + 30, NULL);
-        LineTo(hdc, x + w - 12, y + 30);
-        SelectObject(hdc, hOldSepPen);
+        SelectObject(hdc, hSepPen);
+        MoveToEx(hdc, x + 14, y + 34, NULL);
+        LineTo(hdc, x + w - 14, y + 34);
         DeleteObject(hSepPen);
     };
 
     // ─────────────────────────────────────────────────────────────────────────
-    // KART 1: [RAM & CPU GAUGES] (x: 705, y: 45, w: 350, h: 210)
+    // KART 1: [RAM & CPU GAUGES] (x: 705, y: 48, w: 350, h: 206)
     // ─────────────────────────────────────────────────────────────────────────
-    drawCard(705, 45, 350, 210, "1. [RAM & CPU GAUGES] Canlı Metrikler");
+    drawCard(705, 48, 350, 206, "1. [CPU & RAM GAUGES] Canlı Metrikler");
 
     double cpuVal = std::clamp(stateCopy.metrics.cpuUsagePercent, 0.0, 100.0);
     COLORREF cpuColor = (cpuVal > 75.0) ? Theme::ACCENT_RED : ((cpuVal > 40.0) ? Theme::ACCENT_AMBER : Theme::ACCENT_CYAN);
 
-    int gaugeCenterX = 770;
-    int gaugeCenterY = 135;
+    int gaugeCenterX = 775;
+    int gaugeCenterY = 138;
     int gaugeRadius = 45;
 
-    HPEN hTrackPen = CreatePen(PS_SOLID, 8, RGB(35, 48, 70));
+    // Arka plan dairesel iz
+    HPEN hTrackPen = CreatePen(PS_SOLID, 9, RGB(28, 38, 56));
     HPEN hOldTrackPen = (HPEN)SelectObject(hdc, hTrackPen);
     Arc(hdc, gaugeCenterX - gaugeRadius, gaugeCenterY - gaugeRadius,
              gaugeCenterX + gaugeRadius, gaugeCenterY + gaugeRadius,
@@ -586,11 +700,12 @@ void UIEngine::onPaint(HWND hWnd) {
     SelectObject(hdc, hOldTrackPen);
     DeleteObject(hTrackPen);
 
+    // Aktif yay (Arc)
     double angleRad = (cpuVal / 100.0) * 2.0 * 3.14159265 - (3.14159265 / 2.0);
     int endX = gaugeCenterX + (int)(gaugeRadius * std::cos(angleRad));
     int endY = gaugeCenterY + (int)(gaugeRadius * std::sin(angleRad));
 
-    HPEN hCpuPen = CreatePen(PS_SOLID, 8, cpuColor);
+    HPEN hCpuPen = CreatePen(PS_SOLID, 9, cpuColor);
     HPEN hOldCpuPen = (HPEN)SelectObject(hdc, hCpuPen);
     Arc(hdc, gaugeCenterX - gaugeRadius, gaugeCenterY - gaugeRadius,
              gaugeCenterX + gaugeRadius, gaugeCenterY + gaugeRadius,
@@ -599,86 +714,96 @@ void UIEngine::onPaint(HWND hWnd) {
     SelectObject(hdc, hOldCpuPen);
     DeleteObject(hCpuPen);
 
-    SelectObject(hdc, hFontBold);
+    SelectObject(hdc, hFontGaugeVal);
     std::ostringstream ssCpu;
     ssCpu << std::fixed << std::setprecision(1) << cpuVal << "%";
-    RECT rCpuVal = { gaugeCenterX - 40, gaugeCenterY - 10, gaugeCenterX + 40, gaugeCenterY + 10 };
+    RECT rCpuVal = { gaugeCenterX - 45, gaugeCenterY - 14, gaugeCenterX + 45, gaugeCenterY + 14 };
     DrawTextUtf8(hdc, ssCpu.str(), &rCpuVal, DT_CENTER | DT_VCENTER | DT_SINGLELINE, Theme::TEXT_PRIMARY);
 
     SelectObject(hdc, hFontSub);
-    TextOutUtf8(hdc, gaugeCenterX - 35, gaugeCenterY + 50, "CPU KULLANIMI", Theme::TEXT_MUTED);
+    TextOutUtf8(hdc, gaugeCenterX - 34, gaugeCenterY + 48, "CPU YÜKÜ", Theme::TEXT_MUTED);
 
     // RAM Barları
     SelectObject(hdc, hFontBold);
-    TextOutUtf8(hdc, 840, 90, "Bellek (Working Set):", Theme::TEXT_PRIMARY);
+    TextOutUtf8(hdc, 840, 88, "Bellek (Working Set):", Theme::TEXT_PRIMARY);
 
     std::string ramStr = std::to_string(stateCopy.metrics.workingSetSizeMB) + " MB (Peak: " +
                          std::to_string(stateCopy.metrics.peakWorkingSetSizeMB) + " MB)";
     SelectObject(hdc, hFontSub);
-    TextOutUtf8(hdc, 840, 110, ramStr, Theme::ACCENT_GREEN);
+    TextOutUtf8(hdc, 840, 108, ramStr, Theme::ACCENT_GREEN);
 
-    RECT rRamBarBg = { 840, 132, 1040, 147 };
-    HBRUSH hBarBg = CreateSolidBrush(RGB(35, 48, 70));
-    FillRect(hdc, &rRamBarBg, hBarBg);
+    // Yuvarlatılmış RAM Barı Yuvası
+    RECT rRamBarBg = { 840, 130, 1035, 146 };
+    HBRUSH hBarBg = CreateSolidBrush(RGB(28, 38, 56));
+    SelectObject(hdc, hBarBg);
+    RoundRect(hdc, rRamBarBg.left, rRamBarBg.top, rRamBarBg.right, rRamBarBg.bottom, 6, 6);
     DeleteObject(hBarBg);
 
     size_t maxLimitMB = (stateCopy.sandboxConfig.maxMemoryMB > 0) ? stateCopy.sandboxConfig.maxMemoryMB : 512;
     double ramRatio = std::clamp((double)stateCopy.metrics.workingSetSizeMB / (double)maxLimitMB, 0.0, 1.0);
-    int barFillWidth = (int)((1040 - 840) * ramRatio);
-    RECT rRamBarFill = { 840, 132, 840 + barFillWidth, 147 };
-    HBRUSH hBarFill = CreateSolidBrush(Theme::ACCENT_GREEN);
-    FillRect(hdc, &rRamBarFill, hBarFill);
-    DeleteObject(hBarFill);
+    int barFillWidth = (int)((1035 - 840) * ramRatio);
+    if (barFillWidth > 4) {
+        RECT rRamBarFill = { 840, 130, 840 + barFillWidth, 146 };
+        HBRUSH hBarFill = CreateSolidBrush(Theme::ACCENT_GREEN);
+        SelectObject(hdc, hBarFill);
+        RoundRect(hdc, rRamBarFill.left, rRamBarFill.top, rRamBarFill.right, rRamBarFill.bottom, 6, 6);
+        DeleteObject(hBarFill);
+    }
 
-    std::string ramLimitStr = "Sandbox Limiti: " + std::to_string(maxLimitMB) + " MB";
-    TextOutUtf8(hdc, 840, 155, ramLimitStr, Theme::TEXT_MUTED);
+    std::string ramLimitStr = "Sandbox Sınırı: " + std::to_string(maxLimitMB) + " MB";
+    TextOutUtf8(hdc, 840, 154, ramLimitStr, Theme::TEXT_MUTED);
 
     SelectObject(hdc, hFontBold);
-    std::string threadTxt = "🧵 Threads: " + std::to_string(stateCopy.metrics.threadCount);
-    TextOutUtf8(hdc, 840, 185, threadTxt, Theme::TEXT_PRIMARY);
+    std::string threadTxt = "🧵 " + std::to_string(stateCopy.metrics.threadCount) + " Thread";
+    TextOutUtf8(hdc, 840, 182, threadTxt, Theme::TEXT_PRIMARY);
 
-    std::string handleTxt = "📂 Handles: " + std::to_string(stateCopy.metrics.openHandleCount);
-    TextOutUtf8(hdc, 940, 185, handleTxt, Theme::TEXT_PRIMARY);
+    std::string handleTxt = "📂 " + std::to_string(stateCopy.metrics.openHandleCount) + " Handle";
+    TextOutUtf8(hdc, 940, 182, handleTxt, Theme::TEXT_PRIMARY);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // KART 2: [HANDLE TREE VIEW] (x: 705, y: 260, w: 350, h: 205)
+    // KART 2: [HANDLE TREE VIEW] (x: 705, y: 262, w: 350, h: 202)
     // ─────────────────────────────────────────────────────────────────────────
-    drawCard(705, 260, 350, 205, "2. [HANDLE TREE] Kernel Hiyerarşisi");
+    drawCard(705, 262, 350, 202, "2. [KERNEL HANDLE TREE] Win32 Nesneleri");
 
     SelectObject(hdc, hFontSub);
-    TextOutUtf8(hdc, 715, 298, "▼ Süreç Kernel Nesneleri (Win32 Object Manager):", Theme::TEXT_MUTED);
+    TextOutUtf8(hdc, 720, 298, "▼ İşletim Sistemi Kernel Tanıtıcı Hiyerarşisi:", Theme::TEXT_MUTED);
 
-    std::string s1 = "   ├── [Process Handle] : 0x" + std::to_string(stateCopy.activePID) + " (PROCESS_ALL_ACCESS)";
-    TextOutUtf8(hdc, 715, 323, s1, Theme::TEXT_PRIMARY);
+    std::string s1 = "   ├── ⚡ [Process Handle] : 0x" + std::to_string(stateCopy.activePID) + " (PROCESS_ALL_ACCESS)";
+    TextOutUtf8(hdc, 720, 323, s1, Theme::ACCENT_CYAN);
 
-    std::string s2 = "   ├── [Thread Handles] : " + std::to_string(stateCopy.metrics.threadCount) + " Aktif İş Parçacığı (Toolhelp32)";
-    TextOutUtf8(hdc, 715, 348, s2, Theme::TEXT_PRIMARY);
+    std::string s2 = "   ├── 🧵 [Thread Handles] : " + std::to_string(stateCopy.metrics.threadCount) + " Aktif İş Parçacığı (Toolhelp32)";
+    TextOutUtf8(hdc, 720, 348, s2, Theme::TEXT_PRIMARY);
 
-    std::string s3 = "   ├── [Pipes (STDOUT/STDERR)] : Anonymous Pipe (SpecTer)";
-    TextOutUtf8(hdc, 715, 373, s3, Theme::TEXT_PRIMARY);
+    std::string s3 = "   ├── 🔗 [Anonymous Pipes] : STDOUT & STDERR (SpecTer)";
+    TextOutUtf8(hdc, 720, 373, s3, Theme::ACCENT_AMBER);
 
-    std::string s4 = "   └── [Job Object] : " + std::string(stateCopy.sandboxEnabled ? "Bağlı (Kısıtlamalar Etkin)" : "Yok (Serbest Yürütme)");
-    TextOutUtf8(hdc, 715, 398, s4, stateCopy.sandboxEnabled ? Theme::ACCENT_GREEN : Theme::TEXT_MUTED);
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // KART 3: [SANDBOX PANEL] (x: 705, y: 475, w: 360, h: 280)
-    // ─────────────────────────────────────────────────────────────────────────
-    drawCard(705, 475, 360, 280, "3. [SANDBOX PANEL] Sınırlandırma");
+    std::string s4 = "   └── 🛡️ [Job Object] : " + std::string(stateCopy.sandboxEnabled ? "Bağlı (Kısıtlamalar Etkin)" : "Yok (Serbest Yürütme)");
+    TextOutUtf8(hdc, 720, 398, s4, stateCopy.sandboxEnabled ? Theme::ACCENT_GREEN : Theme::TEXT_MUTED);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // KART 4: [REAL-TIME GRAPH] (x: 1075, y: 45, w: 390, h: 710)
+    // KART 3: [SANDBOX PANEL] (x: 705, y: 472, w: 350, h: 284)
     // ─────────────────────────────────────────────────────────────────────────
-    drawCard(1075, 45, 390, 710, "4. [REAL-TIME GRAPH] Canlı Zaman Serisi (Son 60sn)");
+    drawCard(705, 472, 350, 284, "3. [SANDBOX PANEL] Süreç Kısıtlama");
 
-    int gx = 1115;
+    // ─────────────────────────────────────────────────────────────────────────
+    // KART 4: [REAL-TIME GRAPH] (x: 1065, y: 48, w: 400, h: 708)
+    // ─────────────────────────────────────────────────────────────────────────
+    drawCard(1065, 48, 400, 708, "4. [TIME GRAPH] 60sn Canlı Telemetri");
+
+    int gx = 1105;
     int gy = 95;
-    int gw = 330;
+    int gw = 345;
     int gh = 560;
 
+    // Yuvarlatılmış Grafik Arkaplanı
     RECT rGraph = { gx, gy, gx + gw, gy + gh };
-    HBRUSH hGraphBg = CreateSolidBrush(RGB(18, 24, 34));
-    FillRect(hdc, &rGraph, hGraphBg);
+    HBRUSH hGraphBg = CreateSolidBrush(RGB(14, 20, 30));
+    HPEN hGraphBorder = CreatePen(PS_SOLID, 1, Theme::CARD_BORDER);
+    SelectObject(hdc, hGraphBg);
+    SelectObject(hdc, hGraphBorder);
+    RoundRect(hdc, rGraph.left, rGraph.top, rGraph.right, rGraph.bottom, 10, 10);
     DeleteObject(hGraphBg);
+    DeleteObject(hGraphBorder);
 
     SelectObject(hdc, hFontSub);
     HPEN hGridPen = CreatePen(PS_DOT, 1, Theme::GRID_COLOR);
@@ -709,13 +834,13 @@ void UIEngine::onPaint(HWND hWnd) {
 
         int sec = -60 + step * 15;
         std::string tStr = (sec == 0) ? "0s" : (std::to_string(sec) + "s");
-        TextOutUtf8(hdc, xLine - 10, gy + gh + 4, tStr, Theme::TEXT_MUTED);
+        TextOutUtf8(hdc, xLine - 10, gy + gh + 6, tStr, Theme::TEXT_MUTED);
     }
     SelectObject(hdc, hOldVertPen);
     DeleteObject(hVertGridPen);
 
     if (historyCopy.size() >= 2) {
-        // CPU Eğrisi (Neon Camgöbeği)
+        // CPU Eğrisi (Kalın Neon Camgöbeği)
         HPEN hCpuGraphPen = CreatePen(PS_SOLID, 2, Theme::ACCENT_CYAN);
         HPEN hOldCpuGraphPen = (HPEN)SelectObject(hdc, hCpuGraphPen);
 
@@ -733,7 +858,7 @@ void UIEngine::onPaint(HWND hWnd) {
         SelectObject(hdc, hOldCpuGraphPen);
         DeleteObject(hCpuGraphPen);
 
-        // RAM Eğrisi (Neon Yeşil)
+        // RAM Eğrisi (Kalın Neon Yeşil)
         HPEN hRamGraphPen = CreatePen(PS_SOLID, 2, Theme::ACCENT_GREEN);
         HPEN hOldRamGraphPen = (HPEN)SelectObject(hdc, hRamGraphPen);
 
@@ -752,26 +877,28 @@ void UIEngine::onPaint(HWND hWnd) {
         DeleteObject(hRamGraphPen);
     }
 
+    // Lejant Göstergeleri (Pill Legend)
     int legY = gy + gh + 22;
     HPEN hCpuLeg = CreatePen(PS_SOLID, 3, Theme::ACCENT_CYAN);
     HPEN hOldCpuLeg = (HPEN)SelectObject(hdc, hCpuLeg);
-    MoveToEx(hdc, gx + 10, legY + 8, NULL);
-    LineTo(hdc, gx + 35, legY + 8);
+    MoveToEx(hdc, gx + 15, legY + 8, NULL);
+    LineTo(hdc, gx + 40, legY + 8);
     SelectObject(hdc, hOldCpuLeg);
     DeleteObject(hCpuLeg);
-    TextOutUtf8(hdc, gx + 42, legY, "CPU (%)", Theme::TEXT_PRIMARY);
+    TextOutUtf8(hdc, gx + 48, legY, "CPU (%)", Theme::TEXT_PRIMARY);
 
     HPEN hRamLeg = CreatePen(PS_SOLID, 3, Theme::ACCENT_GREEN);
     HPEN hOldRamLeg = (HPEN)SelectObject(hdc, hRamLeg);
-    MoveToEx(hdc, gx + 170, legY + 8, NULL);
-    LineTo(hdc, gx + 195, legY + 8);
+    MoveToEx(hdc, gx + 180, legY + 8, NULL);
+    LineTo(hdc, gx + 205, legY + 8);
     SelectObject(hdc, hOldRamLeg);
     DeleteObject(hRamLeg);
-    TextOutUtf8(hdc, gx + 202, legY, "RAM (MB)", Theme::TEXT_PRIMARY);
+    TextOutUtf8(hdc, gx + 213, legY, "RAM (MB)", Theme::TEXT_PRIMARY);
 
     DeleteObject(hFontTitle);
     DeleteObject(hFontSub);
     DeleteObject(hFontBold);
+    DeleteObject(hFontGaugeVal);
 
     BitBlt(hdcWindow, 0, 0, width, height, hdc, 0, 0, SRCCOPY);
 
@@ -890,7 +1017,7 @@ void UIEngine::printPrompt() {
         std::string prompt = "SpecTer [" + std::string(cwd) + "]> ";
         printTerminalText(prompt);
     } else {
-        printTerminalText("SpecTer [D:\\CustomVisualizerShell]> ");
+        printTerminalText("SpecTer [.]> ");
     }
 }
 

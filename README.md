@@ -1,6 +1,8 @@
 # SpecTer (Observability & Sandboxed CLI/GUI Terminal)
 
-Windows İşletim Sistemi kernel seviyesinde süreç yönetimi, canlı metrik izleme, sandboxing ve profesyonel grafiksel görselleştirme paneline sahip modüler C++ uygulaması.
+Windows İşletim Sistemi kernel seviyesinde süreç yönetimi, canlı metrik izleme, sandboxing (güvenlik kısıtlaması) ve profesyonel grafiksel görselleştirme paneline sahip modüler C++ uygulaması.
+
+![SpecTer Dashboard](specter_dashboard.jpg)
 
 ---
 
@@ -10,10 +12,10 @@ Proje 4 bağımsız ama birbiriyle entegre çalışan modülden oluşmaktadır:
 
 | Modül | Sorumlu Üye | Görevi / İşlevi |
 | :--- | :--- | :--- |
-| **`ShellCore`** | **1. Üye** | REPL döngüsü, komut ayrıştırma (tokenizer), dahili (`cd`, `cls`, `help`, `exit`) ve harici (`CreateProcessA`) süreç yönetimi, Win32 Pipe ile STDOUT/STDERR yakalama. |
-| **`JobManager`** | **2. Üye** | Windows `Job Objects` API (`CreateJobObject`, `AssignProcessToJobObject`) ile süreçlere RAM ve CPU sınırları uygulama. |
-| **`Profiler`** | **3. Üye** | `GetProcessMemoryInfo`, `GetProcessTimes` ve Toolhelp32 API ile anlık CPU/RAM kullanımı ve kilitli Handle analiz raporu üretimi. |
-| **`UIEngine`** | **4. Üye** | Profesyonel Grafiksel Arayüz (GUI Dashboard): Canlı RAM/CPU dairesel göstergeleri, zaman serisi grafikleri, interaktif Sandbox slider denetimleri ve Kernel Handle hiyerarşi ağacı. |
+| **`ShellCore`** | **1. Üye** | REPL döngüsü, komut ayrıştırma (tokenizer), dahili (`cd`, `cls`, `dir`, `sysinfo`, `ps`, `kill`, `help`, `exit`) ve harici (`CreateProcessA`) süreç yönetimi, Win32 Anonymous Pipe ile STDOUT/STDERR yakalama ve canlı akış (streaming). |
+| **`JobManager`** | **2. Üye** | Windows `Job Objects` API (`CreateJobObject`, `AssignProcessToJobObject`, `SetInformationJobObject`) ile süreçlere RAM ve CPU sınırları uygulama. |
+| **`Profiler`** | **3. Üye** | `GetProcessMemoryInfo`, `GetProcessTimes` ve Toolhelp32 API ile anlık CPU/RAM kullanımı, iş parçacığı ve kilitli Handle analiz raporu üretimi. |
+| **`UIEngine`** | **4. Üye** | Profesyonel Grafiksel Arayüz (GUI Dashboard): Sol panelde Cyberpunk tarzı gömülü terminal konsolu, sağ panelde canlı RAM/CPU dairesel göstergeleri, 60 saniyelik zaman serisi grafikleri, interaktif Sandbox slider denetimleri ve Kernel Handle hiyerarşi ağacı. |
 
 ---
 
@@ -33,9 +35,9 @@ cmake -B build -S .
 cmake --build build --config Release
 
 # 3. Çalıştırın
-.\build\Release\CustomVisualizerShell.exe  # MSVC
+.\build\Release\SpecTer.exe  # MSVC
 # veya
-.\build\CustomVisualizerShell.exe          # MinGW
+.\build\SpecTer.exe          # MinGW
 ```
 
 ---
@@ -43,22 +45,25 @@ cmake --build build --config Release
 ## 📁 Proje Dosya Yapısı
 
 ```
-CustomVisualizerShell/
-├── CMakeLists.txt
-├── .gitignore
-├── README.md
+SpecTer/
+├── CMakeLists.txt         # Proje derleme ve kütüphane bağlantı kuralları (SpecTer.exe)
+├── .gitignore             # Derleme çıktıları ve geçici dosyalar
+├── README.md              # Proje dökümantasyonu ve mimari açıklama
 └── src/
-    ├── main.cpp          # Uygulama giriş noktası
-    ├── ShellCore.h       # 1. Üye: ShellCore sınıf tanımı & ProcessInfo struct
-    ├── ShellCore.cpp     # 1. Üye: REPL, Tokenizer, Win32 Pipe & CreateProcess
-    ├── JobManager.h      # 2. Üye: Job Objects & Sandboxing (Stub)
-    ├── Profiler.h        # 3. Üye: Metrik İzleme & Handle Scanner (Stub)
-    └── UIEngine.h        # 4. Üye: Split-Screen TUI Paneli (Stub)
+    ├── main.cpp           # Uygulama giriş noktası (WinMain) & 4 modül entegrasyonu
+    ├── ShellCore.h        # 1. Üye: ShellCore sınıf tanımı & ProcessInfo struct
+    ├── ShellCore.cpp      # 1. Üye: REPL, Tokenizer, Win32 Pipe & CreateProcessA
+    ├── JobManager.h       # 2. Üye: Job Objects & Sandboxing sınıfı
+    ├── JobManager.cpp     # 2. Üye: RAM/CPU limitleri uygulama implementasyonu
+    ├── Profiler.h         # 3. Üye: Metrik İzleme & Handle Scanner
+    ├── Profiler.cpp       # 3. Üye: Canlı CPU/RAM ve Toolhelp32 anlık örnekleme
+    ├── UIEngine.h         # 4. Üye: Split-Screen GUI Paneli ve Gömülü Terminal
+    └── UIEngine.cpp       # 4. Üye: Win32 GDI çizimi, Custom Controls & Dashboard
 ```
 
 ---
 
-## 🤝 Ekip İçi Çalışma Kuralları
-1. Her üye kendi header ve kaynak dosyasında (`JobManager`, `Profiler`, `UIEngine`) geliştirmesini yapar.
+## 🤝 Ekip İçi Entegrasyon ve Çalışma Kuralları
+1. Her üye kendi header ve kaynak dosyasında (`ShellCore`, `JobManager`, `Profiler`, `UIEngine`) geliştirmesini modüler olarak sürdürür.
 2. `ShellCore` tarafından üretilen `ProcessInfo` yapısı (`hProcess`, `dwProcessId`) diğer modüller için ana veri kaynağıdır.
-3. Koda ekleme yapılmadan önce `git status` ve `git pull` ile güncel kod çekilmeli, ardından `git commit` atılmalıdır.
+3. Süreçler `CREATE_SUSPENDED` bayrağı ile askıda başlatılır; `JobManager` kısıtlamaları uyguladıktan sonra `ResumeThread` ile güvenli şekilde çalışmaya devam eder.

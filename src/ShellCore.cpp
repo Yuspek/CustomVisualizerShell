@@ -760,10 +760,14 @@ void ShellCore::printHelp() const {
     std::cout << "    sandbox set ram <MB> : RAM limitini ayarlar.\n";
     std::cout << "    sandbox set cpu <%>  : CPU limitini ayarlar.\n";
     std::cout << "    sandbox status       : Sandbox durumunu gösterir.\n\n";
+    std::cout << "  Canlı Telemetri & Sunum Testi:\n";
+    std::cout << "    stress               : Grafiği izlemek için 250 MB RAM + %75 CPU yükü başlatır (20 sn).\n";
+    std::cout << "    stress <MB> <sn> <%> : Özel RAM, süre ve CPU yükü ile test başlatır (örn: stress 300 15 90).\n\n";
     std::cout << "  Harici Komutlar (External Process):\n";
-    std::cout << "    ping, ipconfig, powershell gibi sistem uygulamalarını\n";
+    std::cout << "    ping, ipconfig, stress gibi uygulamaları\n";
     std::cout << "    CreateProcessA ile alt süreç olarak çalıştırır.\n\n";
     std::cout << "  Modüler Mimari (4 Üye Yapısı):\n";
+
     std::cout << "    [1] ShellCore   : REPL, Tokenizer, Process & Pipe (Aktif)\n";
     std::cout << "    [2] JobManager  : Job Objects ile RAM/CPU Limitleri (Aktif)\n";
     std::cout << "    [3] Profiler    : Canlı CPU/RAM & Handle Analizi (Aktif)\n";

@@ -77,7 +77,14 @@ if(WIN32)
         advapi32
     )
 endif()
-add_test(NAME AllTests COMMAND SpecTerTests)
+# Stress / Demo Workload Tool for Presentation
+add_executable(stress src/stress.cpp)
+if(MSVC)
+    target_compile_options(stress PRIVATE /W4 /utf-8 /EHsc)
+else()
+    target_compile_options(stress PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
-message(STATUS "Configured ${PROJECT_NAME} and SpecTerTests for C++17 on Windows platform.")
+message(STATUS "Configured ${PROJECT_NAME}, SpecTerTests, and stress for C++17 on Windows platform.")
+
 

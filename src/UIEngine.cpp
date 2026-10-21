@@ -446,18 +446,18 @@ void UIEngine::setupControls(HWND hWnd) {
 
     // Sağ Panel 3. Kart (SANDBOXING): Slider ve Toggle Butonları
     // Col 1, Row 2: x: 588, y: 413, w: 382, h: 337
-    // 1. RAM Slider (64 MB - 2048 MB)
+    // 1. RAM Slider (64 MB - 2048 MB) - Yazı 457'de, Slider 486'da (15px temiz boşluk)
     m_hTrackRam = CreateWindowA(TRACKBAR_CLASSA, "RAM Slider",
         WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS | TBS_NOTICKS,
-        610, 475, 338, 28,
+        610, 486, 338, 24,
         hWnd, (HMENU)IDC_TRACK_RAM, hInst, NULL);
     SendMessage(m_hTrackRam, TBM_SETRANGE, TRUE, MAKELPARAM(64, 2048));
     SendMessage(m_hTrackRam, TBM_SETPOS, TRUE, 256);
 
-    // 2. CPU Slider (10% - 100%)
+    // 2. CPU Slider (10% - 100%) - Yazı 535'te, Slider 564'te (15px temiz boşluk)
     m_hTrackCpu = CreateWindowA(TRACKBAR_CLASSA, "CPU Slider",
         WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS | TBS_NOTICKS,
-        610, 545, 338, 28,
+        610, 564, 338, 24,
         hWnd, (HMENU)IDC_TRACK_CPU, hInst, NULL);
     SendMessage(m_hTrackCpu, TBM_SETRANGE, TRUE, MAKELPARAM(10, 100));
     SendMessage(m_hTrackCpu, TBM_SETPOS, TRUE, 50);
@@ -465,9 +465,10 @@ void UIEngine::setupControls(HWND hWnd) {
     // 3. Büyük Pill Toggle Butonu: SANDBOX: AKTIF / KAPALI
     m_hBtnToggleSandbox = CreateWindowA("BUTTON", "SANDBOX: KAPALI",
         WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-        616, 630, 326, 52,
+        616, 638, 326, 50,
         hWnd, (HMENU)IDC_BTN_TOGGLE_SB, hInst, NULL);
 }
+
 
 void UIEngine::handleHScroll(HWND /*hWnd*/, WPARAM /*wParam*/, LPARAM lParam) {
     if ((HWND)lParam == m_hTrackRam || (HWND)lParam == m_hTrackCpu) {
@@ -622,6 +623,8 @@ void UIEngine::onPaint(HWND hWnd) {
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
     HFONT hFontTree = CreateFontA(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, "Segoe UI");
+    HFONT hFontAxis = CreateFontA(11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
 
     SetBkMode(hdc, TRANSPARENT);
 
@@ -870,16 +873,16 @@ void UIEngine::onPaint(HWND hWnd) {
     drawDashboardCard(col1X, row2Y, cardW, cardH, "SANDBOXING");
 
     SelectObject(hdc, hFontBold);
-    // RAM Başlığı ve LIMIT Değeri
-    TextOutUtf8(hdc, col1X + 26, row2Y + 54, "RAM", RGB(255, 255, 255));
+    // RAM Başlığı ve LIMIT Değeri (Slider 486'da, yazı 444'te - çakışma ve kırpılma yok)
+    TextOutUtf8(hdc, col1X + 26, row2Y + 44, "RAM", RGB(255, 255, 255));
     std::string ramLimitVal = std::to_string(stateCopy.sandboxConfig.maxMemoryMB) + " MB LIMIT";
-    RECT rRamLim = { col1X + 160, row2Y + 54, col1X + cardW - 26, row2Y + 70 };
+    RECT rRamLim = { col1X + 160, row2Y + 44, col1X + cardW - 26, row2Y + 62 };
     DrawTextUtf8(hdc, ramLimitVal, &rRamLim, DT_RIGHT | DT_SINGLELINE, Theme::TEXT_MUTED);
 
-    // CPU Başlığı ve LIMIT Değeri
-    TextOutUtf8(hdc, col1X + 26, row2Y + 124, "CPU", RGB(255, 255, 255));
+    // CPU Başlığı ve LIMIT Değeri (Slider 564'te, yazı 522'de - çakışma ve kırpılma yok)
+    TextOutUtf8(hdc, col1X + 26, row2Y + 122, "CPU", RGB(255, 255, 255));
     std::string cpuLimitVal = "%" + std::to_string(stateCopy.sandboxConfig.maxCpuPercent) + " LIMIT";
-    RECT rCpuLim = { col1X + 160, row2Y + 124, col1X + cardW - 26, row2Y + 140 };
+    RECT rCpuLim = { col1X + 160, row2Y + 122, col1X + cardW - 26, row2Y + 140 };
     DrawTextUtf8(hdc, cpuLimitVal, &rCpuLim, DT_RIGHT | DT_SINGLELINE, Theme::TEXT_MUTED);
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -887,10 +890,18 @@ void UIEngine::onPaint(HWND hWnd) {
     // ─────────────────────────────────────────────────────────────────────────
     drawDashboardCard(col2X, row2Y, cardW, cardH, "TIME GRAPH");
 
-    int gx = col2X + 24;
-    int gy = row2Y + 54;
-    int gw = cardW - 48;
-    int gh = 210;
+    int gx = col2X + 46;
+    int gy = row2Y + 48;
+    int gw = cardW - 92;
+    int gh = 200;
+
+    // Eksen Başlıkları (Sol: CPU %, Sağ: RAM MB)
+    SelectObject(hdc, hFontAxis);
+    RECT rCpuHead = { col2X + 2, gy - 16, gx - 4, gy };
+    DrawTextUtf8(hdc, "CPU %", &rCpuHead, DT_RIGHT | DT_SINGLELINE, Theme::ACCENT_CYAN);
+
+    RECT rRamHead = { gx + gw + 4, gy - 16, col2X + cardW - 4, gy };
+    DrawTextUtf8(hdc, "RAM", &rRamHead, DT_LEFT | DT_SINGLELINE, Theme::ACCENT_GREEN);
 
     // Grafik Zemin Dikdörtgeni
     RECT rGraph = { gx, gy, gx + gw, gy + gh };
@@ -902,19 +913,37 @@ void UIEngine::onPaint(HWND hWnd) {
     DeleteObject(hGraphBg);
     DeleteObject(hGraphBorder);
 
-    // Dotted Izgara Çizgileri
+    // Dotted Izgara Çizgileri ve Yan Eksen Değerleri (5 Adım: %100, %75, %50, %25, %0)
     HPEN hGridPen = CreatePen(PS_DOT, 1, RGB(34, 46, 68));
     HPEN hOldGridPen = (HPEN)SelectObject(hdc, hGridPen);
 
     for (int step = 0; step <= 4; ++step) {
         int yLine = gy + (gh * step) / 4;
-        MoveToEx(hdc, gx + 4, yLine, NULL);
-        LineTo(hdc, gx + gw - 4, yLine);
+        MoveToEx(hdc, gx + 2, yLine, NULL);
+        LineTo(hdc, gx + gw - 2, yLine);
+
+        // Sol Eksen Değeri: CPU % (100%, 75%, 50%, 25%, 0%)
+        int cpuPct = 100 - step * 25;
+        std::string cpuValStr = "%" + std::to_string(cpuPct);
+        RECT rCpuScale = { col2X + 2, yLine - 7, gx - 5, yLine + 9 };
+        DrawTextUtf8(hdc, cpuValStr, &rCpuScale, DT_RIGHT | DT_SINGLELINE | DT_VCENTER, RGB(110, 215, 240));
+
+        // Sağ Eksen Değeri: RAM MB (maxLimitMB ... 0M)
+        size_t ramStepMB = (maxLimitMB * (4 - step)) / 4;
+        std::string ramValStr = std::to_string(ramStepMB) + "M";
+        RECT rRamScale = { gx + gw + 5, yLine - 7, col2X + cardW - 4, yLine + 9 };
+        DrawTextUtf8(hdc, ramValStr, &rRamScale, DT_LEFT | DT_SINGLELINE | DT_VCENTER, RGB(110, 230, 160));
     }
-    for (int step = 0; step <= 6; ++step) {
-        int xLine = gx + (gw * step) / 6;
-        MoveToEx(hdc, xLine, gy + 4, NULL);
-        LineTo(hdc, xLine, gy + gh - 4);
+
+    // Dikey Izgara Çizgileri ve Zaman İşaretleri (-60s ... 0s)
+    const char* timeLabels[5] = { "-60s", "-45s", "-30s", "-15s", "0s" };
+    for (int step = 0; step <= 4; ++step) {
+        int xLine = gx + (gw * step) / 4;
+        MoveToEx(hdc, xLine, gy + 2, NULL);
+        LineTo(hdc, xLine, gy + gh - 2);
+
+        RECT rTime = { xLine - 18, gy + gh + 4, xLine + 18, gy + gh + 18 };
+        DrawTextUtf8(hdc, timeLabels[step], &rTime, DT_CENTER | DT_SINGLELINE, Theme::TEXT_MUTED);
     }
     SelectObject(hdc, hOldGridPen);
     DeleteObject(hGridPen);
@@ -925,12 +954,12 @@ void UIEngine::onPaint(HWND hWnd) {
         for (size_t i = 0; i < historyCopy.size(); ++i) {
             double rVal = std::clamp((double)historyCopy[i].ramMB / (double)maxLimitMB, 0.0, 1.0);
             int ptX = gx + (int)((gw * i) / (MAX_HISTORY_POINTS - 1));
-            int ptY = gy + gh - (int)((gh * 0.85) * rVal);
+            int ptY = (gy + gh - 2) - (int)((gh - 4) * rVal);
 
             HPEN hFillPen = CreatePen(PS_SOLID, 1, RGB(8, 48, 28));
             HPEN hOldFP = (HPEN)SelectObject(hdc, hFillPen);
             MoveToEx(hdc, ptX, ptY, NULL);
-            LineTo(hdc, ptX, gy + gh - 1);
+            LineTo(hdc, ptX, gy + gh - 2);
             SelectObject(hdc, hOldFP);
             DeleteObject(hFillPen);
         }
@@ -941,7 +970,7 @@ void UIEngine::onPaint(HWND hWnd) {
         for (size_t i = 0; i < historyCopy.size(); ++i) {
             double rVal = std::clamp((double)historyCopy[i].ramMB / (double)maxLimitMB, 0.0, 1.0);
             int ptX = gx + (int)((gw * i) / (MAX_HISTORY_POINTS - 1));
-            int ptY = gy + gh - (int)((gh * 0.85) * rVal);
+            int ptY = (gy + gh - 2) - (int)((gh - 4) * rVal);
             if (i == 0) MoveToEx(hdc, ptX, ptY, NULL);
             else LineTo(hdc, ptX, ptY);
         }
@@ -954,7 +983,7 @@ void UIEngine::onPaint(HWND hWnd) {
         for (size_t i = 0; i < historyCopy.size(); ++i) {
             double cVal = std::clamp(historyCopy[i].cpuUsagePercent, 0.0, 100.0);
             int ptX = gx + (int)((gw * i) / (MAX_HISTORY_POINTS - 1));
-            int ptY = gy + gh - (int)((gh * 0.85) * (cVal / 100.0));
+            int ptY = (gy + gh - 2) - (int)((gh - 4) * (cVal / 100.0));
             if (i == 0) MoveToEx(hdc, ptX, ptY, NULL);
             else LineTo(hdc, ptX, ptY);
         }
@@ -962,9 +991,9 @@ void UIEngine::onPaint(HWND hWnd) {
         DeleteObject(hCpuGraphPen);
     }
 
-    // Grafik Altındaki Lejant: ● CPU    ● RAM
+    // Grafik Altındaki Lejant: ● CPU (%)    ● RAM (MB)
     SelectObject(hdc, hFontBold);
-    int legY = gy + gh + 14;
+    int legY = gy + gh + 22;
     int legCenterX = gx + gw / 2;
 
     // CPU Lejantı
@@ -972,20 +1001,20 @@ void UIEngine::onPaint(HWND hWnd) {
     HPEN hCpuDotPen = CreatePen(PS_SOLID, 1, Theme::ACCENT_CYAN);
     SelectObject(hdc, hCpuDotBrush);
     SelectObject(hdc, hCpuDotPen);
-    Ellipse(hdc, legCenterX - 65, legY + 4, legCenterX - 57, legY + 12);
+    Ellipse(hdc, legCenterX - 78, legY + 4, legCenterX - 70, legY + 12);
     DeleteObject(hCpuDotBrush);
     DeleteObject(hCpuDotPen);
-    TextOutUtf8(hdc, legCenterX - 52, legY, "CPU", Theme::TEXT_PRIMARY);
+    TextOutUtf8(hdc, legCenterX - 66, legY, "CPU (%)", Theme::TEXT_PRIMARY);
 
     // RAM Lejantı
     HBRUSH hRamDotBrush = CreateSolidBrush(Theme::ACCENT_GREEN);
     HPEN hRamDotPen = CreatePen(PS_SOLID, 1, Theme::ACCENT_GREEN);
     SelectObject(hdc, hRamDotBrush);
     SelectObject(hdc, hRamDotPen);
-    Ellipse(hdc, legCenterX + 15, legY + 4, legCenterX + 23, legY + 12);
+    Ellipse(hdc, legCenterX + 16, legY + 4, legCenterX + 24, legY + 12);
     DeleteObject(hRamDotBrush);
     DeleteObject(hRamDotPen);
-    TextOutUtf8(hdc, legCenterX + 28, legY, "RAM", Theme::TEXT_PRIMARY);
+    TextOutUtf8(hdc, legCenterX + 29, legY, "RAM (MB)", Theme::TEXT_PRIMARY);
 
     DeleteObject(hFontLogo);
     DeleteObject(hFontTitle);
@@ -993,6 +1022,7 @@ void UIEngine::onPaint(HWND hWnd) {
     DeleteObject(hFontBold);
     DeleteObject(hFontGaugeVal);
     DeleteObject(hFontTree);
+    DeleteObject(hFontAxis);
 
     BitBlt(hdcWindow, 0, 0, width, height, hdc, 0, 0, SRCCOPY);
 

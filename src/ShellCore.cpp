@@ -762,7 +762,8 @@ void ShellCore::printHelp() const {
     std::cout << "    sandbox status       : Sandbox durumunu gösterir.\n\n";
     std::cout << "  Canlı Telemetri & Sunum Testi:\n";
     std::cout << "    stress               : Grafiği izlemek için 250 MB RAM + %75 CPU yükü başlatır (20 sn).\n";
-    std::cout << "    stress <MB> <sn> <%> : Özel RAM, süre ve CPU yükü ile test başlatır (örn: stress 300 15 90).\n\n";
+    std::cout << "    stress <MB> <sn> <%> : Özel RAM, süre ve CPU yükü ile test başlatır (örn: stress 300 15 90).\n";
+    std::cout << "    test                 : 32 maddelik sistem doğrulama test paketini çalıştırır.\n\n";
     std::cout << "  Harici Komutlar (External Process):\n";
     std::cout << "    ping, ipconfig, stress gibi uygulamaları\n";
     std::cout << "    CreateProcessA ile alt süreç olarak çalıştırır.\n\n";
@@ -1029,7 +1030,21 @@ void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback o
     PROCESS_INFORMATION pi;
     ZeroMemory(&pi, sizeof(pi));
 
-    std::vector<char> cmdBuf(inputLine.begin(), inputLine.end());
+    std::string runCmd = inputLine;
+    if (cmdLow == "stress") {
+        char selfPath[MAX_PATH] = { 0 };
+        GetModuleFileNameA(NULL, selfPath, MAX_PATH);
+        runCmd = "\"" + std::string(selfPath) + "\" --stress";
+        for (size_t i = 1; i < args.size(); ++i) {
+            runCmd += " " + args[i];
+        }
+    } else if (cmdLow == "test" || cmdLow == "tests") {
+        char selfPath[MAX_PATH] = { 0 };
+        GetModuleFileNameA(NULL, selfPath, MAX_PATH);
+        runCmd = "\"" + std::string(selfPath) + "\" --test";
+    }
+
+    std::vector<char> cmdBuf(runCmd.begin(), runCmd.end());
     cmdBuf.push_back('\0');
 
     // CREATE_NO_WINDOW: SpecTer bir GUI uygulaması olduğu için konsol uygulamaları
@@ -1039,7 +1054,7 @@ void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback o
 
     if (!bCreated) {
         // Doğrudan çalıştırma başarısız olduysa CMD yerleşik komutu olarak dene (ver, set vb.)
-        std::string fallbackCmd = "cmd.exe /c " + inputLine;
+        std::string fallbackCmd = "cmd.exe /c " + runCmd;
         std::vector<char> fallbackBuf(fallbackCmd.begin(), fallbackCmd.end());
         fallbackBuf.push_back('\0');
         bCreated = CreateProcessA(NULL, fallbackBuf.data(), NULL, NULL, TRUE, flags, NULL, NULL, &si, &pi);

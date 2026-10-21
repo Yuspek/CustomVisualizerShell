@@ -1,3 +1,4 @@
+#include "TestSuite.h"
 #include <iostream>
 #include <cassert>
 #include <string>
@@ -8,7 +9,6 @@
 #include "Profiler.h"
 #include "UIEngine.h"
 
-// Basit test koşucu makroları
 static int g_passedTests = 0;
 static int g_failedTests = 0;
 
@@ -23,7 +23,7 @@ static int g_failedTests = 0;
         } \
     } while (0)
 
-void testShellCore() {
+static void testShellCore() {
     std::cout << "\n=== 1. ShellCore Testleri ===\n";
     ShellCore shell;
 
@@ -78,7 +78,7 @@ void testShellCore() {
     TEST_ASSERT(shell.isRunning() == false, "ShellCore 'exit' sonrası running = false olmalı");
 }
 
-void testJobManager() {
+static void testJobManager() {
     std::cout << "\n=== 2. JobManager Testleri ===\n";
     OSVisualizer::JobManager jm;
 
@@ -124,7 +124,7 @@ void testJobManager() {
     TEST_ASSERT(res.success == false, "Geçersiz süreç handle'ına Job Object atanması engellenmeli");
 }
 
-void testProfiler() {
+static void testProfiler() {
     std::cout << "\n=== 3. Profiler Testleri ===\n";
     OSVisualizer::Profiler profiler;
 
@@ -147,7 +147,7 @@ void testProfiler() {
     TEST_ASSERT(true, "Profiler sıfırlama hatasız tamamlanmalı");
 }
 
-void testUIEngine() {
+static void testUIEngine() {
     std::cout << "\n=== 4. UIEngine (Dashboard GUI) Testleri ===\n";
     SpecTer::UIEngine ui;
 
@@ -180,8 +180,11 @@ void testUIEngine() {
     TEST_ASSERT(ui.isWindowOpen() == false, "UIEngine penceresi kapatıldıktan sonra kapalı görünmeli");
 }
 
-int main() {
+int RunAllSpecTerTests() {
     SetConsoleOutputCP(CP_UTF8);
+    g_passedTests = 0;
+    g_failedTests = 0;
+
     std::cout << "========================================================\n";
     std::cout << "         SpecTer Projesi Kapsamlı Otomasyon Testi        \n";
     std::cout << "========================================================\n";
@@ -197,4 +200,3 @@ int main() {
 
     return (g_failedTests == 0) ? 0 : 1;
 }
-

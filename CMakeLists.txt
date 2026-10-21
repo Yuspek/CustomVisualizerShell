@@ -9,13 +9,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Export compile commands for VS Code / IDE intellisense
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Source files list
+# Source files list (Tek bir birleşik binary)
 set(SOURCES
     src/main.cpp
     src/ShellCore.cpp
     src/JobManager.cpp
     src/Profiler.cpp
     src/UIEngine.cpp
+    src/TestSuite.cpp
 )
 
 # Headers list (for IDE grouping)
@@ -24,6 +25,7 @@ set(HEADERS
     src/JobManager.h
     src/Profiler.h
     src/UIEngine.h
+    src/TestSuite.h
 )
 
 # Executable target definition (WIN32 = SUBSYSTEM:WINDOWS, konsol penceresi açılmaz)
@@ -48,43 +50,12 @@ if(WIN32)
         comctl32
         psapi
         advapi32
+        shell32
     )
 endif()
 
-# Automated Test Target
+# Automated Test Integration (Tek exe üzerinden --test parametresiyle entegre test)
 enable_testing()
-add_executable(SpecTerTests
-    tests/test_suite.cpp
-    src/ShellCore.cpp
-    src/JobManager.cpp
-    src/Profiler.cpp
-    src/UIEngine.cpp
-)
+add_test(NAME SpecTerTests COMMAND ${PROJECT_NAME} --test)
 
-target_include_directories(SpecTerTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-if(MSVC)
-    target_compile_options(SpecTerTests PRIVATE /W4 /utf-8 /EHsc)
-else()
-    target_compile_options(SpecTerTests PRIVATE -Wall -Wextra -Wpedantic)
-endif()
-if(WIN32)
-    target_link_libraries(SpecTerTests PRIVATE
-        kernel32
-        user32
-        gdi32
-        comctl32
-        psapi
-        advapi32
-    )
-endif()
-# Stress / Demo Workload Tool for Presentation
-add_executable(stress src/stress.cpp)
-if(MSVC)
-    target_compile_options(stress PRIVATE /W4 /utf-8 /EHsc)
-else()
-    target_compile_options(stress PRIVATE -Wall -Wextra -Wpedantic)
-endif()
-
-message(STATUS "Configured ${PROJECT_NAME}, SpecTerTests, and stress for C++17 on Windows platform.")
-
-
+message(STATUS "Configured ${PROJECT_NAME} as a single unified executable for C++17 on Windows platform.")

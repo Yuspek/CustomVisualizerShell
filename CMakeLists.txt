@@ -51,4 +51,33 @@ if(WIN32)
     )
 endif()
 
-message(STATUS "Configured ${PROJECT_NAME} for C++17 on Windows platform.")
+# Automated Test Target
+enable_testing()
+add_executable(SpecTerTests
+    tests/test_suite.cpp
+    src/ShellCore.cpp
+    src/JobManager.cpp
+    src/Profiler.cpp
+    src/UIEngine.cpp
+)
+
+target_include_directories(SpecTerTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+if(MSVC)
+    target_compile_options(SpecTerTests PRIVATE /W4 /utf-8 /EHsc)
+else()
+    target_compile_options(SpecTerTests PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+if(WIN32)
+    target_link_libraries(SpecTerTests PRIVATE
+        kernel32
+        user32
+        gdi32
+        comctl32
+        psapi
+        advapi32
+    )
+endif()
+add_test(NAME AllTests COMMAND SpecTerTests)
+
+message(STATUS "Configured ${PROJECT_NAME} and SpecTerTests for C++17 on Windows platform.")
+

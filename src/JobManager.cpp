@@ -14,7 +14,38 @@ JobManager::JobManager() : m_enabled(false) {
 }
 
 JobManager::~JobManager() {
-    // Job handle'lar süreç bazlı oluşturulup kapatıldığı için burada ek temizlik gerekmez.
+    // Kalan tüm Job handle'larını kapat. JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE sayesinde
+    // SpecTer kapanırken sandbox içinde hala çalışan süreçler de sonlandırılır.
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (HANDLE hJob : m_jobs) {
+        if (hJob) CloseHandle(hJob);
+    }
+    m_jobs.clear();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Boşalmış Job Object'lerin Temizliği
+// ─────────────────────────────────────────────────────────────────────────────
+
+void JobManager::pruneFinishedJobsLocked() {
+    for (auto it = m_jobs.begin(); it != m_jobs.end();) {
+        JOBOBJECT_BASIC_ACCOUNTING_INFORMATION acct;
+        ZeroMemory(&acct, sizeof(acct));
+        BOOL ok = QueryInformationJobObject(*it, JobObjectBasicAccountingInformation,
+                                            &acct, sizeof(acct), NULL);
+        if (!ok || acct.ActiveProcesses == 0) {
+            CloseHandle(*it);
+            it = m_jobs.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+size_t JobManager::activeJobCount() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    pruneFinishedJobsLocked();
+    return m_jobs.size();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23,12 +54,16 @@ JobManager::~JobManager() {
 
 SandboxResult JobManager::createJobAndApply(ProcessInfo& procInfo) {
     SandboxResult result;
+    std::lock_guard<std::mutex> lock(m_mutex);
 
     // Sandbox modu kapalıysa hiçbir işlem yapma
     if (!m_enabled) {
         result.success = true;
         return result;
     }
+
+    // Önceki çalıştırmalardan kalan boş Job'ları temizle (handle sızıntısını önler)
+    pruneFinishedJobsLocked();
 
     // Geçerli süreç handle'ı kontrolü
     if (procInfo.hProcess == NULL || procInfo.hProcess == INVALID_HANDLE_VALUE) {
@@ -109,9 +144,8 @@ SandboxResult JobManager::createJobAndApply(ProcessInfo& procInfo) {
         DWORD dwErr = GetLastError();
         // CPU rate kontrolü bazı Windows sürümlerinde desteklenmeyebilir
         // Bu durumda uyarı verilir ama işleme devam edilir
-        std::cerr << "[JobManager UYARI]: CPU limiti uygulanamadi. "
-                  << formatWin32Error(dwErr)
-                  << " (RAM limiti hala aktif)\n";
+        result.warning = "[JobManager UYARI]: CPU limiti uygulanamadi. " +
+                         formatWin32Error(dwErr) + " (RAM limiti hala aktif)";
     }
 
     // ─── Adım 4: Süreci Job Object'e Atama ─────────────────────────────────
@@ -128,24 +162,27 @@ SandboxResult JobManager::createJobAndApply(ProcessInfo& procInfo) {
         return result;
     }
 
-    // ─── Başarılı: Sandbox Raporu Yazdır ────────────────────────────────────
-    std::cout << "\n  +--------------------------------------------------+\n";
-    std::cout << "  |          SANDBOX AKTIF - Job Object Atandi         |\n";
-    std::cout << "  +--------------------------------------------------+\n";
-    std::cout << "  |  PID         : " << std::setw(10) << procInfo.dwProcessId << "                       |\n";
-    std::cout << "  |  RAM Limiti  : " << std::setw(10) << m_config.maxMemoryMB << " MB" << "                    |\n";
-    std::cout << "  |  CPU Limiti  : " << std::setw(10) << m_config.maxCpuPercent << " %" << "                     |\n";
-    std::cout << "  |  Kill-on-Close: AKTIF (Job kapaninca surec biter) |\n";
-    std::cout << "  +--------------------------------------------------+\n\n";
+    // ─── Başarılı: Sandbox Raporu Oluştur ────────────────────────────────────
+    // Not: SpecTer bir GUI (WIN32 subsystem) uygulaması olduğu için std::cout'a yazılan
+    // metin kaybolur. Rapor bu yüzden SandboxResult içinde çağıran tarafa döndürülür.
+    std::ostringstream oss;
+    oss << "\n  +--------------------------------------------------+\n";
+    oss << "  |          SANDBOX AKTIF - Job Object Atandi         |\n";
+    oss << "  +--------------------------------------------------+\n";
+    oss << "  |  PID         : " << std::setw(10) << procInfo.dwProcessId << "                       |\n";
+    oss << "  |  RAM Limiti  : " << std::setw(10) << m_config.maxMemoryMB << " MB" << "                    |\n";
+    oss << "  |  CPU Limiti  : " << std::setw(10) << m_config.maxCpuPercent << " %" << "                     |\n";
+    oss << "  |  Kill-on-Close: AKTIF (Job kapaninca surec biter) |\n";
+    oss << "  +--------------------------------------------------+\n\n";
 
     result.success = true;
+    result.report = oss.str();
     result.hJob = hJob;
 
-    // Not: hJob burada kapatılmıyor çünkü süreç çalışırken Job'un aktif kalması gerekiyor.
-    // Job handle'ı süreç tamamlandığında otomatik olarak geçersizleşecektir
-    // (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE sayesinde).
-    // Ancak bellek sızıntısını önlemek için CloseHandle çağrısı yapılabilir;
-    // bu durumda süreç zaten çalışmaya devam eder, sınırlar aktif kalır.
+    // Job handle'ı süreç çalışırken açık kalmalıdır (KILL_ON_JOB_CLOSE nedeniyle kapatılırsa
+    // süreç sonlanır). Handle JobManager tarafından saklanır; süreç bittiğinde
+    // pruneFinishedJobsLocked() ile, uygulama kapanırken de yıkıcıda kapatılır.
+    m_jobs.push_back(hJob);
 
     return result;
 }
@@ -155,18 +192,22 @@ SandboxResult JobManager::createJobAndApply(ProcessInfo& procInfo) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void JobManager::setConfig(const SandboxConfig& cfg) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     m_config = cfg;
 }
 
 SandboxConfig JobManager::getConfig() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     return m_config;
 }
 
 void JobManager::setEnabled(bool enabled) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     m_enabled = enabled;
 }
 
 bool JobManager::isEnabled() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     return m_enabled;
 }
 
@@ -175,6 +216,11 @@ bool JobManager::isEnabled() const {
 // ─────────────────────────────────────────────────────────────────────────────
 
 std::string JobManager::getStatusReport() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return buildStatusReportLocked();
+}
+
+std::string JobManager::buildStatusReportLocked() const {
     std::ostringstream oss;
 
     oss << "\n  +--------------------------------------------------+\n";
@@ -200,10 +246,12 @@ std::string JobManager::getStatusReport() const {
 // ─────────────────────────────────────────────────────────────────────────────
 
 bool JobManager::handleCommand(const std::vector<std::string>& args) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
     // args[0] = "sandbox" veya "job"
     if (args.size() < 2) {
         // Argüman verilmediyse durum raporunu göster
-        std::cout << getStatusReport();
+        std::cout << buildStatusReportLocked();
         return true;
     }
 
@@ -231,7 +279,46 @@ bool JobManager::handleCommand(const std::vector<std::string>& args) {
 
     // ─── sandbox status ─────────────────────────────────────────────────────
     if (subCmd == "status") {
-        std::cout << getStatusReport();
+        std::cout << buildStatusReportLocked();
+        return true;
+    }
+
+    // ─── sandbox ram <MB> / sandbox cpu <%> (Kısa yol) ──────────────────────
+    if (subCmd == "ram" || subCmd == "memory" || subCmd == "mem") {
+        if (args.size() < 3) {
+            std::cerr << "\n  [JobManager HATA]: Eksik RAM degeri.\n  Kullanim: sandbox ram <MB>\n\n";
+            return true;
+        }
+        try {
+            unsigned long value = std::stoul(args[2]);
+            if (value < 1 || value > 65536) {
+                std::cerr << "\n  [JobManager HATA]: RAM limiti 1-65536 MB arasinda olmali.\n\n";
+                return true;
+            }
+            m_config.maxMemoryMB = static_cast<size_t>(value);
+            std::cout << "\n  [JobManager] RAM limiti " << m_config.maxMemoryMB << " MB olarak ayarlandi.\n\n";
+        } catch (...) {
+            std::cerr << "\n  [JobManager HATA]: Gecersiz sayi degeri: '" << args[2] << "'\n\n";
+        }
+        return true;
+    }
+
+    if (subCmd == "cpu") {
+        if (args.size() < 3) {
+            std::cerr << "\n  [JobManager HATA]: Eksik CPU degeri.\n  Kullanim: sandbox cpu <%>\n\n";
+            return true;
+        }
+        try {
+            unsigned long value = std::stoul(args[2]);
+            if (value < 1 || value > 100) {
+                std::cerr << "\n  [JobManager HATA]: CPU limiti 1-100 arasinda olmali.\n\n";
+                return true;
+            }
+            m_config.maxCpuPercent = static_cast<DWORD>(value);
+            std::cout << "\n  [JobManager] CPU limiti %" << m_config.maxCpuPercent << " olarak ayarlandi.\n\n";
+        } catch (...) {
+            std::cerr << "\n  [JobManager HATA]: Gecersiz sayi degeri: '" << args[2] << "'\n\n";
+        }
         return true;
     }
 
@@ -279,6 +366,7 @@ bool JobManager::handleCommand(const std::vector<std::string>& args) {
 
         return true;
     }
+
 
     // Tanınmayan alt komut
     std::cerr << "\n  [JobManager HATA]: Bilinmeyen komut '" << args[1] << "'.\n";

@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <mutex>
 #include "ShellCore.h"
 
 namespace OSVisualizer {
@@ -28,7 +29,9 @@ struct SandboxConfig {
 struct SandboxResult {
     bool        success = false;       ///< İşlem başarılı mı?
     std::string errorMessage;          ///< Hata durumunda açıklama mesajı
-    HANDLE      hJob    = NULL;        ///< Oluşturulan Job Object handle'ı
+    std::string warning;               ///< Kritik olmayan uyarı (örn. CPU limiti desteklenmiyor)
+    std::string report;                ///< Başarılı atamada terminale yazılacak sandbox raporu
+    HANDLE      hJob    = NULL;        ///< Oluşturulan Job Object handle'ı (JobManager'a aittir)
 };
 
 /**
@@ -112,9 +115,23 @@ public:
      */
     bool handleCommand(const std::vector<std::string>& args);
 
+    /**
+     * @brief Halen açık tutulan (aktif süreç barındıran) Job Object sayısını döndürür.
+     *        Boşalmış Job'lar bu çağrı sırasında kapatılır.
+     */
+    size_t activeJobCount();
+
 private:
-    bool          m_enabled;  ///< Sandbox modu açık/kapalı durumu
-    SandboxConfig m_config;   ///< Aktif sandbox konfigürasyonu
+    mutable std::mutex   m_mutex;    ///< GUI ve komut thread'leri arasında eşzamanlılık koruması
+    bool                 m_enabled;  ///< Sandbox modu açık/kapalı durumu
+    SandboxConfig        m_config;   ///< Aktif sandbox konfigürasyonu
+    std::vector<HANDLE>  m_jobs;     ///< Oluşturulan Job Object handle'ları (KILL_ON_JOB_CLOSE)
+
+    /// @brief İçinde aktif süreç kalmamış Job handle'larını kapatır (m_mutex kilitliyken çağrılır).
+    void pruneFinishedJobsLocked();
+
+    /// @brief Durum raporunu üretir (m_mutex kilitliyken çağrılır).
+    std::string buildStatusReportLocked() const;
 
     /**
      * @brief Win32 GetLastError() kodunu okunabilir hata mesajına çevirir.

@@ -27,6 +27,13 @@ int WINAPI WinMain(HINSTANCE /*hInstance*/, HINSTANCE /*hPrevInstance*/, LPSTR /
                 OSVisualizer::SandboxResult result = jobManager.createJobAndApply(procInfo);
                 if (!result.success) {
                     uiEngine.printTerminalText("[JobManager HATA]: " + result.errorMessage + "\r\n");
+                } else {
+                    if (!result.warning.empty()) {
+                        uiEngine.printTerminalText(result.warning + "\r\n");
+                    }
+                    if (!result.report.empty()) {
+                        uiEngine.printTerminalText(result.report);
+                    }
                 }
             }
 
@@ -63,13 +70,21 @@ int WINAPI WinMain(HINSTANCE /*hInstance*/, HINSTANCE /*hPrevInstance*/, LPSTR /
         // Sol Panele gömülü Terminal'den gelen komutları ShellCore'a bağlama
         uiEngine.setCommandHandler([&shell, &uiEngine](const std::string& cmdLine) {
             shell.executeLineStream(cmdLine, [&uiEngine](const std::string& outputChunk) {
-                if (outputChunk == "\x1B[CLEAR]") {
+                if (outputChunk == ShellCore::kClearMarker) {
                     uiEngine.clearTerminal();
+                } else if (outputChunk == ShellCore::kExitMarker) {
+                    uiEngine.closeDashboard();
                 } else {
                     uiEngine.printTerminalText(outputChunk);
                 }
             });
         });
+
+        // Ctrl+C ile çalışan harici süreci sonlandırma hook'u
+        uiEngine.setInterruptHandler([&shell]() {
+            shell.interruptCurrentProcess();
+        });
+
 
         // 4. Üye: Birleşik Grafiksel Dashboard ve Gömülü Terminal Penceresini Başlat
         if (uiEngine.initDashboardWindow()) {

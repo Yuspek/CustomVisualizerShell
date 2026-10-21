@@ -95,10 +95,13 @@ public:
 
     // Gömülü Terminal (Left Pane) Komut ve Metin Yönetimi
     using CommandHandler = std::function<void(const std::string&)>;
+    using InterruptHandler = std::function<void()>;
     void setCommandHandler(CommandHandler handler);
+    void setInterruptHandler(InterruptHandler handler);
     void printTerminalText(const std::string& text);
     void clearTerminal();
     void printPrompt();
+
 
 private:
     void guiThreadFunc(HINSTANCE hInstance);
@@ -131,8 +134,10 @@ private:
     HBRUSH m_hTermBrush = NULL;
     WNDPROC m_pfnOldEditProc = nullptr;
     CommandHandler m_commandHandler = nullptr;
+    InterruptHandler m_interruptHandler = nullptr;
 
     std::vector<std::string> m_termHistory;
+
     int m_termHistoryIndex = -1;
 
     // Sağ Panel Win32 Kontrol Handle'ları

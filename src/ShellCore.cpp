@@ -9,10 +9,11 @@
 #include <chrono>
 #include <ctime>
 
-ShellCore::ShellCore() : m_running(false), m_onProcessCreated(nullptr), m_onJobCommand(nullptr), m_startSuspended(false), m_hConsole(NULL) {
+ShellCore::ShellCore() : m_running(true), m_onProcessCreated(nullptr), m_onJobCommand(nullptr), m_startSuspended(false), m_hConsole(NULL) {
     // initConsoleWindow() çağrısı kaldırıldı: Artık konsol penceresi yok (FreeConsole),
     // terminal gömülü GUI EDIT kontrolünde çalışıyor.
 }
+
 
 ShellCore::~ShellCore() {}
 
@@ -198,6 +199,20 @@ bool ShellCore::executeBuiltIn(const std::vector<std::string>& args) {
         return true;
     }
 
+    if (cmd == "time" || cmd == "date") {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        std::cout << "\n  [Sistem Zamani] : "
+                  << std::setfill('0') << std::setw(2) << st.wDay << "."
+                  << std::setfill('0') << std::setw(2) << st.wMonth << "."
+                  << st.wYear << "  "
+                  << std::setfill('0') << std::setw(2) << st.wHour << ":"
+                  << std::setfill('0') << std::setw(2) << st.wMinute << ":"
+                  << std::setfill('0') << std::setw(2) << st.wSecond << "\n\n";
+        return true;
+    }
+
+
     // Sürücü değiştirme: c:, d:, e: vb.
     if (cmd.length() == 2 && std::isalpha(static_cast<unsigned char>(cmd[0])) && cmd[1] == ':') {
         std::string drivePath = cmd + "\\";
@@ -377,7 +392,7 @@ bool ShellCore::executeBuiltIn(const std::vector<std::string>& args) {
         if (hFind == INVALID_HANDLE_VALUE) {
             std::cerr << "[dir HATA]: Dizin listelenemedi! Hata Kodu: " << GetLastError() << "\n";
         } else {
-            std::cout << "\n  Dizin: " << getCurrentWorkingDirectory() << "\n";
+            std::cout << "\n  Dizin: " << (args.size() >= 2 ? args[1] : getCurrentWorkingDirectory()) << "\n";
             std::cout << "  " << std::string(55, '-') << "\n";
 
             DWORD fileCount = 0, dirCount = 0;
@@ -413,6 +428,7 @@ bool ShellCore::executeBuiltIn(const std::vector<std::string>& args) {
             } while (FindNextFileA(hFind, &findData));
 
             FindClose(hFind);
+            std::cout << std::setfill(' '); // Global cout durumunu sonraki komutlar için geri al
 
             std::cout << "  " << std::string(55, '-') << "\n";
             std::cout << "  " << fileCount << " dosya, " << dirCount << " klasor";
@@ -751,7 +767,11 @@ void ShellCore::printHelp() const {
     std::cout << "    [1] ShellCore   : REPL, Tokenizer, Process & Pipe (Aktif)\n";
     std::cout << "    [2] JobManager  : Job Objects ile RAM/CPU Limitleri (Aktif)\n";
     std::cout << "    [3] Profiler    : Canlı CPU/RAM & Handle Analizi (Aktif)\n";
-    std::cout << "    [4] UIEngine    : Split-Screen GUI Paneli (Tasarım Hazır)\n";
+    std::cout << "    [4] UIEngine    : GUI Dashboard & Gömülü Terminal (Aktif)\n\n";
+    std::cout << "  Terminal Kısayolları:\n";
+    std::cout << "    ↑ / ↓            : Komut geçmişinde gezinir.\n";
+    std::cout << "    Ctrl+C           : Çalışan harici süreci sonlandırır (seçim varsa kopyalar).\n";
+    std::cout << "    Ctrl+L           : Ekranı temizler.\n";
     std::cout << "=======================================================================\n\n";
 }
 
@@ -949,6 +969,7 @@ void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback o
     if (cmdLow == "exit" || cmdLow == "quit") {
         m_running = false;
         outputCb("SpecTer kapatılıyor...\r\n");
+        outputCb(kExitMarker);
         return;
     }
 
@@ -1007,11 +1028,13 @@ void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback o
     std::vector<char> cmdBuf(inputLine.begin(), inputLine.end());
     cmdBuf.push_back('\0');
 
-    DWORD flags = m_startSuspended ? CREATE_SUSPENDED : 0;
+    // CREATE_NO_WINDOW: SpecTer bir GUI uygulaması olduğu için konsol uygulamaları
+    // (ping, ipconfig...) aksi halde boş bir konsol penceresi açar. Çıktı zaten pipe'tan okunur.
+    DWORD flags = CREATE_NO_WINDOW | (m_startSuspended ? CREATE_SUSPENDED : 0);
     BOOL bCreated = CreateProcessA(NULL, cmdBuf.data(), NULL, NULL, TRUE, flags, NULL, NULL, &si, &pi);
 
     if (!bCreated) {
-        // Doğrudan çalıştırma başarısız olduysa CMD yerleşik komutu olarak dene (dir, ipconfig vb.)
+        // Doğrudan çalıştırma başarısız olduysa CMD yerleşik komutu olarak dene (ver, set vb.)
         std::string fallbackCmd = "cmd.exe /c " + inputLine;
         std::vector<char> fallbackBuf(fallbackCmd.begin(), fallbackCmd.end());
         fallbackBuf.push_back('\0');
@@ -1039,43 +1062,40 @@ void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback o
         m_onProcessCreated(info);
     }
 
-    if (m_startSuspended) {
+    if (flags & CREATE_SUSPENDED) {
         ResumeThread(pi.hThread);
     }
 
     // Canlı Çıktı Okuma Döngüsü (Real-time Pipe Streaming + OEM to UTF-8 Türkçe karakter dönüşümü)
-    char buf[1024];
-    DWORD dwRead = 0;
-
-    while (true) {
-        DWORD dwAvail = 0;
-        if (PeekNamedPipe(hChildStdOutRead, NULL, 0, NULL, &dwAvail, NULL) && dwAvail > 0) {
-            if (ReadFile(hChildStdOutRead, buf, sizeof(buf) - 1, &dwRead, NULL) && dwRead > 0) {
-                buf[dwRead] = '\0';
-                outputCb(OemToUtf8(std::string(buf, dwRead)));
-            }
+    // Pipe'ta bekleyen tüm veriyi bloklamadan okur (PeekNamedPipe ile).
+    auto drainPipe = [&outputCb](HANDLE hPipe, const char* prefix) {
+        char buf[4096];
+        for (;;) {
+            DWORD dwAvail = 0;
+            if (!PeekNamedPipe(hPipe, NULL, 0, NULL, &dwAvail, NULL) || dwAvail == 0) break;
+            DWORD dwRead = 0;
+            DWORD toRead = (dwAvail < sizeof(buf)) ? dwAvail : static_cast<DWORD>(sizeof(buf));
+            if (!ReadFile(hPipe, buf, toRead, &dwRead, NULL) || dwRead == 0) break;
+            outputCb(std::string(prefix) + OemToUtf8(std::string(buf, dwRead)));
         }
+    };
 
-        if (PeekNamedPipe(hChildStdErrRead, NULL, 0, NULL, &dwAvail, NULL) && dwAvail > 0) {
-            if (ReadFile(hChildStdErrRead, buf, sizeof(buf) - 1, &dwRead, NULL) && dwRead > 0) {
-                buf[dwRead] = '\0';
-                outputCb("[STDERR]: " + OemToUtf8(std::string(buf, dwRead)));
-            }
-        }
+    m_hCurrentProcess.store(pi.hProcess);
 
-        DWORD waitRes = WaitForSingleObject(pi.hProcess, 50);
-        if (waitRes == WAIT_OBJECT_0) {
-            while (ReadFile(hChildStdOutRead, buf, sizeof(buf) - 1, &dwRead, NULL) && dwRead > 0) {
-                buf[dwRead] = '\0';
-                outputCb(OemToUtf8(std::string(buf, dwRead)));
-            }
-            while (ReadFile(hChildStdErrRead, buf, sizeof(buf) - 1, &dwRead, NULL) && dwRead > 0) {
-                buf[dwRead] = '\0';
-                outputCb("[STDERR]: " + OemToUtf8(std::string(buf, dwRead)));
-            }
+    for (;;) {
+        drainPipe(hChildStdOutRead, "");
+        drainPipe(hChildStdErrRead, "[STDERR]: ");
+
+        if (WaitForSingleObject(pi.hProcess, 25) == WAIT_OBJECT_0) {
+            // Süreç bitti: kalan veriyi bloklamadan topla. (Bloklayan ReadFile kullanılmaz;
+            // pipe'ı miras alan torun süreçler varsa shell sonsuza kadar kilitlenebilirdi.)
+            drainPipe(hChildStdOutRead, "");
+            drainPipe(hChildStdErrRead, "[STDERR]: ");
             break;
         }
     }
+
+    m_hCurrentProcess.store(NULL);
 
     DWORD exitCode = 0;
     GetExitCodeProcess(pi.hProcess, &exitCode);
@@ -1088,3 +1108,11 @@ void ShellCore::executeLineStream(const std::string& inputLine, OutputCallback o
     exitMsg << "\r\n[Process Exited with Code: " << exitCode << " | PID: " << pi.dwProcessId << "]\r\n\r\n";
     outputCb(exitMsg.str());
 }
+
+void ShellCore::interruptCurrentProcess() {
+    HANDLE h = m_hCurrentProcess.load();
+    if (h != NULL && h != INVALID_HANDLE_VALUE) {
+        TerminateProcess(h, 1);
+    }
+}
+

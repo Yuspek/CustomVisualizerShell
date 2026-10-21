@@ -20,9 +20,37 @@ namespace OSVisualizer {
 ProcessMetrics Profiler::sampleProcess(HANDLE hProcess) {
     ProcessMetrics metrics;
 
-    // ── Guard: Geçersiz handle kontrolü ──
-    if (hProcess == NULL || hProcess == INVALID_HANDLE_VALUE) {
+    // ── Guard: Geçersiz handle kontrolü (Win32'de GetCurrentProcess() == (HANDLE)-1 olduğundan özel ele alınır) ──
+    if (hProcess == NULL) {
         return metrics;
+    }
+
+    DWORD targetPID = 0;
+    HANDLE hEffective = hProcess;
+    bool bNeedClose = false;
+
+    if (hProcess == (HANDLE)-1 || hProcess == GetCurrentProcess()) {
+        targetPID = GetCurrentProcessId();
+        HANDLE hOpened = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, targetPID);
+        if (hOpened != NULL && hOpened != INVALID_HANDLE_VALUE) {
+            hEffective = hOpened;
+            bNeedClose = true;
+        }
+    } else {
+        targetPID = GetProcessId(hProcess);
+    }
+
+    if (targetPID == 0) {
+        if (hProcess == INVALID_HANDLE_VALUE) {
+            return metrics;
+        }
+    }
+
+
+    // Farklı bir sürece geçildiyse CPU delta tabanını sıfırla (yanlış/taşmış değer üretmemek için)
+    if (targetPID != m_prevPid) {
+        reset();
+        m_prevPid = targetPID;
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -32,10 +60,13 @@ ProcessMetrics Profiler::sampleProcess(HANDLE hProcess) {
     ZeroMemory(&pmc, sizeof(pmc));
     pmc.cb = sizeof(pmc);
 
-    if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc))) {
-        metrics.workingSetSizeMB     = pmc.WorkingSetSize     / (1024 * 1024);
-        metrics.peakWorkingSetSizeMB = pmc.PeakWorkingSetSize / (1024 * 1024);
+    if (GetProcessMemoryInfo(hEffective, &pmc, sizeof(pmc))) {
+        metrics.workingSetSizeMB     = (pmc.WorkingSetSize > 0) ? std::max<size_t>(1, pmc.WorkingSetSize / (1024 * 1024)) : 0;
+        metrics.peakWorkingSetSizeMB = (pmc.PeakWorkingSetSize > 0) ? std::max<size_t>(1, pmc.PeakWorkingSetSize / (1024 * 1024)) : 0;
     }
+
+
+
 
     // ══════════════════════════════════════════════════════════════════
     //  2) CPU Kullanım Yüzdesi — GetProcessTimes (windows.h)
@@ -65,22 +96,17 @@ ProcessMetrics Profiler::sampleProcess(HANDLE hProcess) {
         GetSystemTimeAsFileTime(&ftNow);
         ULONGLONG currentWall = toUInt64(ftNow);
 
-        // Delta hesabı — önceki ölçüm varsa
-        if (m_prevWallTime > 0) {
+        // Delta hesabı — önceki ölçüm varsa (ve sayaçlar geriye gitmediyse)
+        if (m_prevWallTime > 0 && currentWall > m_prevWallTime &&
+            currentKernel >= m_prevKernelTime && currentUser >= m_prevUserTime) {
             ULONGLONG deltaKernel = currentKernel - m_prevKernelTime;
             ULONGLONG deltaUser   = currentUser   - m_prevUserTime;
             ULONGLONG deltaWall   = currentWall   - m_prevWallTime;
 
-            if (deltaWall > 0) {
-                metrics.cpuUsagePercent =
-                    static_cast<double>(deltaKernel + deltaUser) /
-                    static_cast<double>(deltaWall) * 100.0;
-
-                // Clamp: Tek çekirdek bazında %100'ü geçebilir ama negatif olamaz
-                if (metrics.cpuUsagePercent < 0.0) {
-                    metrics.cpuUsagePercent = 0.0;
-                }
-            }
+            metrics.cpuUsagePercent =
+                static_cast<double>(deltaKernel + deltaUser) /
+                static_cast<double>(deltaWall) * 100.0;
+            // Not: Tek çekirdek bazında %100'ü geçebilir (çok çekirdekli kullanım).
         }
 
         // Mevcut değerleri bir sonraki çağrı için sakla
@@ -93,9 +119,15 @@ ProcessMetrics Profiler::sampleProcess(HANDLE hProcess) {
     //  3) Açık Handle Sayısı — GetProcessHandleCount (windows.h)
     // ══════════════════════════════════════════════════════════════════
     DWORD handleCount = 0;
-    if (GetProcessHandleCount(hProcess, &handleCount)) {
+    if (GetProcessHandleCount(hEffective, &handleCount)) {
         metrics.openHandleCount = handleCount;
     }
+
+    if (bNeedClose && hEffective != NULL && hEffective != INVALID_HANDLE_VALUE) {
+        CloseHandle(hEffective);
+        hEffective = hProcess;
+    }
+
 
     // ══════════════════════════════════════════════════════════════════
     //  4) Thread Sayımı — Toolhelp32 API (tlhelp32.h)
@@ -103,8 +135,6 @@ ProcessMetrics Profiler::sampleProcess(HANDLE hProcess) {
     //  CreateToolhelp32Snapshot ile sistemdeki tüm thread'lerin anlık
     //  görüntüsünü alıp, hedef sürecin PID'sine sahip olanları sayar.
     // ══════════════════════════════════════════════════════════════════
-    DWORD targetPID = GetProcessId(hProcess);
-
     if (targetPID != 0) {
         HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
 

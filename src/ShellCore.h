@@ -6,6 +6,7 @@
 #include <vector>
 #include <functional>
 #include <iostream>
+#include <atomic>
 
 // ============================================================================
 // ProcessInfo Yapısı
@@ -29,6 +30,10 @@ struct ProcessInfo {
 // ============================================================================
 class ShellCore {
 public:
+    // executeLineStream çıktı akışında GUI'ye gönderilen özel kontrol işaretleri
+    static constexpr const char* kClearMarker = "\x1B[CLEAR]"; // cls/clear: terminali temizle
+    static constexpr const char* kExitMarker  = "\x1B[EXIT]";  // exit/quit: uygulamayı kapat
+
     // Süreç oluşturulduğunda diğer modüllerin tetiklenmesi için callback tanımı
     using ProcessCreatedCallback = std::function<void(ProcessInfo&)>;
 
@@ -60,15 +65,23 @@ public:
     // Mevcut çalışma dizinini döndürür
     std::string getCurrentWorkingDirectory() const;
 
+    // REPL döngüsü durumu
+    bool isRunning() const { return m_running; }
+
+    // Çalışmakta olan harici alt süreci sonlandırır (Ctrl+C için)
+    void interruptCurrentProcess();
+
     // Tek bir komut satırını çalıştırır ve çıktıları canlı akış olarak outputCb callback'ine gönderir
     using OutputCallback = std::function<void(const std::string&)>;
     void executeLineStream(const std::string& inputLine, OutputCallback outputCb);
 
 private:
     bool m_running;                         // REPL döngüsü çalışıyor mu?
+    std::atomic<HANDLE> m_hCurrentProcess{NULL}; // Çalışan alt sürecin handle'ı (Ctrl+C için)
     ProcessCreatedCallback m_onProcessCreated; // Süreç oluşturma tetikleyicisi
+
     JobCommandCallback m_onJobCommand;      // Sandbox komut tetikleyicisi
-    bool m_startSuspended;                  // Süreç askıda başlatılsın mı?
+    std::atomic<bool> m_startSuspended;     // Süreç askıda başlatılsın mı? (GUI thread'i de yazar)
     HANDLE m_hConsole;                      // Konsol pencere handle'ı
     std::vector<std::string> m_history;     // Komut geçmişi listesi
 

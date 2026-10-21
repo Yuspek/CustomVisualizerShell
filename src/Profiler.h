@@ -29,8 +29,20 @@ public:
     Profiler()
         : m_prevKernelTime(0)
         , m_prevUserTime(0)
-        , m_prevWallTime(0) {}
+        , m_prevWallTime(0)
+        , m_prevPid(0) {}
     ~Profiler() = default;
+
+    /**
+     * @brief CPU delta hesabı için tutulan önceki ölçüm değerlerini sıfırlar.
+     *        Farklı bir sürece geçildiğinde otomatik olarak da çağrılır.
+     */
+    void reset() {
+        m_prevKernelTime = 0;
+        m_prevUserTime   = 0;
+        m_prevWallTime   = 0;
+        m_prevPid        = 0;
+    }
 
     /**
      * @brief Sürecin anlık RAM ve CPU kullanımını hesaplar.
@@ -48,6 +60,7 @@ private:
     ULONGLONG m_prevKernelTime;  ///< Önceki Kernel zamanı
     ULONGLONG m_prevUserTime;    ///< Önceki User zamanı
     ULONGLONG m_prevWallTime;    ///< Önceki duvar saati (wall clock) zamanı
+    DWORD     m_prevPid;         ///< Önceki ölçümün yapıldığı sürecin PID'si
 };
 
 } // namespace OSVisualizer

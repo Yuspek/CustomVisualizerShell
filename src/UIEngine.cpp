@@ -4,6 +4,9 @@
 #include <iomanip>
 #include <cmath>
 #include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstdlib>
 
 // Win32 Kontrol Tanımlayıcıları
 #define IDC_TRACK_RAM          1001
@@ -13,20 +16,187 @@
 
 namespace SpecTer {
 
-// ── Ultra-Modern Renk Paleti (Cyberpunk Slate & Neon Telemetry) ──
-namespace Theme {
-    const COLORREF BG_MAIN         = RGB(15, 20, 31);     // Derin uzay antrasiti (#0F141F)
-    const COLORREF CARD_BG         = RGB(21, 27, 40);     // Modern kart panel arkaplanı (#151B28)
-    const COLORREF CARD_BORDER     = RGB(34, 45, 66);     // İnce kart çerçevesi (#222D42)
-    const COLORREF HEADER_BG       = RGB(15, 20, 31);     // Üst başlık barı
-    const COLORREF TEXT_PRIMARY    = RGB(242, 246, 255);  // Parlak beyaz metin
-    const COLORREF TEXT_MUTED      = RGB(130, 148, 172);  // Muted açıklama metni
-    const COLORREF TEXT_LABEL      = RGB(156, 172, 196);  // Kart başlık metni
-    const COLORREF ACCENT_CYAN     = RGB(0, 229, 255);    // CPU / Neon Camgöbeği (#00E5FF)
-    const COLORREF ACCENT_GREEN    = RGB(0, 230, 118);    // RAM / Neon Yeşil (#00E676)
-    const COLORREF ACCENT_AMBER    = RGB(255, 171, 0);    // Uyarı / Turuncu
-    const COLORREF ACCENT_RED      = RGB(255, 82, 82);    // Kritik / Kırmızı
-    const COLORREF GRID_COLOR      = RGB(28, 38, 56);     // Grafik ızgara çizgisi
+#define IDC_BTN_THEME          1004
+#define WM_APP_THEME_CHANGED   (WM_APP + 41)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Erişilebilirlik Tema Sistemi (Normal + 3 Temel Renk Körlüğü)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Ultra-Modern Renk Paleti (Cyberpunk Slate & Neon Telemetry) ── Varsayılan
+static const ThemePalette kPaletteNormal = {
+    RGB(15, 20, 31),     // bgMain        : Derin uzay antrasiti (#0F141F)
+    RGB(21, 27, 40),     // cardBg        : Modern kart panel arkaplanı (#151B28)
+    RGB(34, 45, 66),     // cardBorder    : İnce kart çerçevesi (#222D42)
+    RGB(242, 246, 255),  // textPrimary   : Parlak beyaz metin
+    RGB(130, 148, 172),  // textMuted     : Muted açıklama metni
+    RGB(156, 172, 196),  // textLabel     : Kart başlık metni
+    RGB(0, 229, 255),    // accentPrimary : CPU / Neon Camgöbeği (#00E5FF)
+    RGB(0, 230, 118),    // accentSecondary: RAM / Neon Yeşil (#00E676)
+    RGB(255, 171, 0),    // accentWarning : Uyarı / Turuncu
+    RGB(255, 82, 82),    // accentDanger  : Kritik / Kırmızı
+    RGB(28, 38, 56),     // gridColor     : Grafik ızgara çizgisi
+    RGB(10, 14, 20),     // terminalBg    : Koyu siyah terminal zemini
+    RGB(0, 230, 118),    // terminalText  : Neon yeşil terminal metni
+    false                // shapeMarkers
+};
+
+// ── Protanopia (Kırmızı körlüğü) ── Kırmızı/yeşil ayrımı yok → Mavi ↔ Sarı ekseni
+// Kırmızı tonlar protanlarda karanlık algılandığından "kritik" rengi parlak leylak seçildi.
+static const ThemePalette kPaletteProtanopia = {
+    RGB(14, 18, 30),     // bgMain
+    RGB(20, 26, 42),     // cardBg
+    RGB(44, 56, 84),     // cardBorder (daha yüksek kontrast)
+    RGB(248, 250, 255),  // textPrimary
+    RGB(150, 162, 186),  // textMuted
+    RGB(176, 188, 210),  // textLabel
+    RGB(86, 180, 233),   // accentPrimary : Gök mavisi (Okabe-Ito #56B4E9)
+    RGB(240, 228, 66),   // accentSecondary: Sarı (Okabe-Ito #F0E442)
+    RGB(230, 159, 0),    // accentWarning : Turuncu (Okabe-Ito #E69F00)
+    RGB(190, 150, 255),  // accentDanger  : Parlak leylak
+    RGB(34, 44, 66),     // gridColor
+    RGB(10, 13, 22),     // terminalBg
+    RGB(240, 228, 66),   // terminalText  : Sarı
+    true                 // shapeMarkers
+};
+
+// ── Deuteranopia (Yeşil körlüğü) ── Kırmızı/yeşil ayrımı yok → Mavi ↔ Turuncu ekseni
+static const ThemePalette kPaletteDeuteranopia = {
+    RGB(15, 18, 28),     // bgMain
+    RGB(22, 26, 40),     // cardBg
+    RGB(46, 54, 80),     // cardBorder
+    RGB(246, 248, 255),  // textPrimary
+    RGB(152, 160, 182),  // textMuted
+    RGB(178, 186, 206),  // textLabel
+    RGB(100, 143, 255),  // accentPrimary : Mavi (IBM #648FFF)
+    RGB(255, 176, 0),    // accentSecondary: Altın turuncu (IBM #FFB000)
+    RGB(254, 97, 0),     // accentWarning : Koyu turuncu (IBM #FE6100)
+    RGB(220, 38, 127),   // accentDanger  : Macenta (IBM #DC267F)
+    RGB(34, 42, 64),     // gridColor
+    RGB(10, 12, 20),     // terminalBg
+    RGB(255, 196, 64),   // terminalText  : Açık altın
+    true                 // shapeMarkers
+};
+
+// ── Tritanopia (Mavi körlüğü) ── Mavi/sarı ayrımı yok → Kırmızı ↔ Camgöbeği ekseni
+static const ThemePalette kPaletteTritanopia = {
+    RGB(20, 18, 22),     // bgMain  (nötr, mavi tonsuz zemin)
+    RGB(30, 27, 32),     // cardBg
+    RGB(64, 56, 64),     // cardBorder
+    RGB(255, 250, 250),  // textPrimary
+    RGB(170, 160, 164),  // textMuted
+    RGB(196, 186, 190),  // textLabel
+    RGB(255, 94, 160),   // accentPrimary : Pembe-macenta
+    RGB(0, 200, 200),    // accentSecondary: Camgöbeği / teal
+    RGB(255, 180, 196),  // accentWarning : Açık pembe
+    RGB(235, 40, 40),    // accentDanger  : Saf kırmızı
+    RGB(46, 40, 46),     // gridColor
+    RGB(14, 12, 14),     // terminalBg
+    RGB(80, 230, 220),   // terminalText  : Açık camgöbeği
+    true                 // shapeMarkers
+};
+
+// ── Özelleştirme Anahtarları (INI & "tema renk" komutu için) ──
+struct PaletteKey {
+    const char* key;
+    COLORREF ThemePalette::* member;
+    const char* desc;
+};
+
+static const PaletteKey kPaletteKeys[] = {
+    { "bgMain",          &ThemePalette::bgMain,          "Ana pencere zemini" },
+    { "cardBg",          &ThemePalette::cardBg,          "Kart zemini" },
+    { "cardBorder",      &ThemePalette::cardBorder,      "Kart çerçevesi" },
+    { "textPrimary",     &ThemePalette::textPrimary,     "Birincil metin" },
+    { "textMuted",       &ThemePalette::textMuted,       "Soluk metin" },
+    { "textLabel",       &ThemePalette::textLabel,       "Kart başlığı" },
+    { "accentPrimary",   &ThemePalette::accentPrimary,   "CPU vurgusu" },
+    { "accentSecondary", &ThemePalette::accentSecondary, "RAM / aktif vurgusu" },
+    { "accentWarning",   &ThemePalette::accentWarning,   "Uyarı vurgusu" },
+    { "accentDanger",    &ThemePalette::accentDanger,    "Kritik / kapalı vurgusu" },
+    { "gridColor",       &ThemePalette::gridColor,       "Izgara & gösterge izi" },
+    { "terminalBg",      &ThemePalette::terminalBg,      "Terminal zemini" },
+    { "terminalText",    &ThemePalette::terminalText,    "Terminal metni" },
+};
+
+static const char* kThemeIniSections[] = { "Normal", "Protanopia", "Deuteranopia", "Tritanopia" };
+
+static int ThemeIndex(ColorBlindTheme t) {
+    int i = static_cast<int>(t);
+    return (i < 0 || i >= static_cast<int>(ColorBlindTheme::Count)) ? 0 : i;
+}
+
+// İki rengi t oranında harmanlar (t=0 → a, t=1 → b)
+static COLORREF BlendColor(COLORREF a, COLORREF b, double t) {
+    t = std::clamp(t, 0.0, 1.0);
+    auto mix = [t](int x, int y) { return (BYTE)std::lround(x + (y - x) * t); };
+    return RGB(mix(GetRValue(a), GetRValue(b)),
+               mix(GetGValue(a), GetGValue(b)),
+               mix(GetBValue(a), GetBValue(b)));
+}
+
+static std::string ColorToHex(COLORREF c) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "#%02X%02X%02X", GetRValue(c), GetGValue(c), GetBValue(c));
+    return buf;
+}
+
+// "#RRGGBB", "RRGGBB", "0xRRGGBB" veya "R,G,B" biçimlerini çözer
+static bool ParseColor(std::string s, COLORREF& out) {
+    s.erase(std::remove_if(s.begin(), s.end(), [](unsigned char ch) { return std::isspace(ch); }), s.end());
+    if (s.empty()) return false;
+
+    if (s.find(',') != std::string::npos) {
+        int r = -1, g = -1, b = -1;
+        if (sscanf(s.c_str(), "%d,%d,%d", &r, &g, &b) == 3 &&
+            r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255) {
+            out = RGB(r, g, b);
+            return true;
+        }
+        return false;
+    }
+
+    if (s[0] == '#') s = s.substr(1);
+    else if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) s = s.substr(2);
+    if (s.size() != 6 || !std::all_of(s.begin(), s.end(), [](unsigned char ch) { return std::isxdigit(ch); })) {
+        return false;
+    }
+    unsigned long v = std::strtoul(s.c_str(), nullptr, 16);
+    out = RGB((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
+    return true;
+}
+
+static std::string ToLowerAscii(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+    return s;
+}
+
+// Kullanıcı girdisinden tema çözümleme (kısaltmalar desteklenir)
+static bool ParseThemeName(const std::string& raw, ColorBlindTheme& out) {
+    std::string s = ToLowerAscii(raw);
+    if (s == "normal" || s == "varsayilan" || s == "default" || s == "0") { out = ColorBlindTheme::Normal; return true; }
+    if (s.rfind("prot", 0) == 0 || s == "1") { out = ColorBlindTheme::Protanopia; return true; }
+    if (s.rfind("deut", 0) == 0 || s == "2") { out = ColorBlindTheme::Deuteranopia; return true; }
+    if (s.rfind("trit", 0) == 0 || s == "3") { out = ColorBlindTheme::Tritanopia; return true; }
+    return false;
+}
+
+ThemePalette UIEngine::defaultPalette(ColorBlindTheme theme) {
+    switch (theme) {
+    case ColorBlindTheme::Protanopia:   return kPaletteProtanopia;
+    case ColorBlindTheme::Deuteranopia: return kPaletteDeuteranopia;
+    case ColorBlindTheme::Tritanopia:   return kPaletteTritanopia;
+    default:                            return kPaletteNormal;
+    }
+}
+
+const char* UIEngine::themeDisplayName(ColorBlindTheme theme) {
+    switch (theme) {
+    case ColorBlindTheme::Protanopia:   return "Protanopi";
+    case ColorBlindTheme::Deuteranopia: return "Döteranopi";
+    case ColorBlindTheme::Tritanopia:   return "Tritanopi";
+    default:                            return "Normal";
+    }
 }
 
 // ── UTF-8 Türkçe Karakter Çizim Yardımcıları (GDI TextOutW & DrawTextW) ──
@@ -141,9 +311,13 @@ UIEngine::UIEngine()
     , m_hBtnApply(NULL)
     , m_hLblRamVal(NULL)
     , m_hLblCpuVal(NULL)
-    , m_hStaticBrush(CreateSolidBrush(Theme::CARD_BG))
+    , m_hStaticBrush(CreateSolidBrush(kPaletteNormal.cardBg))
     , m_hActiveProcess(NULL)
 {
+    // Tüm erişilebilirlik temalarını fabrika ayarlarıyla doldur
+    for (int i = 0; i < static_cast<int>(ColorBlindTheme::Count); ++i) {
+        m_palettes[i] = defaultPalette(static_cast<ColorBlindTheme>(i));
+    }
     m_state.processName = "SpecTer Beklemede...";
     m_state.sandboxConfig.maxMemoryMB = 256;
     m_state.sandboxConfig.maxCpuPercent = 50;
@@ -252,6 +426,17 @@ void UIEngine::guiThreadFunc(HINSTANCE hInstance) {
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
     icex.dwICC = ICC_BAR_CLASSES | ICC_STANDARD_CLASSES;
     InitCommonControlsEx(&icex);
+
+    // Kayıtlı kullanıcı temalarını (varsa) yükle: exe yanındaki specter_themes.ini
+    loadThemesFromFile();
+    {
+        ThemePalette P = activePalette();
+        std::lock_guard<std::mutex> lock(m_themeMutex);
+        if (m_hStaticBrush) DeleteObject(m_hStaticBrush);
+        if (m_hTermBrush) DeleteObject(m_hTermBrush);
+        m_hStaticBrush = CreateSolidBrush(P.cardBg);
+        m_hTermBrush = CreateSolidBrush(P.terminalBg);
+    }
 
     const char* CLASS_NAME = "SpecTerDashboardWindowClass";
 
@@ -388,24 +573,56 @@ LRESULT CALLBACK UIEngine::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
     case WM_CTLCOLORSTATIC: {
         HDC hdcStatic = (HDC)wParam;
         HWND hCtrl = (HWND)lParam;
+        const ThemePalette P = pThis ? pThis->activePalette() : kPaletteNormal;
         if (pThis && hCtrl == pThis->m_hTerminalEdit) {
-            SetTextColor(hdcStatic, RGB(0, 230, 118)); // Neon Yeşil Metin
-            SetBkColor(hdcStatic, RGB(10, 14, 20));    // Koyu Siyah Zemin
+            SetTextColor(hdcStatic, P.terminalText); // Tema terminal metni
+            SetBkColor(hdcStatic, P.terminalBg);     // Tema terminal zemini
             if (!pThis->m_hTermBrush) {
-                pThis->m_hTermBrush = CreateSolidBrush(RGB(10, 14, 20));
+                pThis->m_hTermBrush = CreateSolidBrush(P.terminalBg);
             }
             return (LRESULT)pThis->m_hTermBrush;
         }
-        SetTextColor(hdcStatic, Theme::TEXT_PRIMARY);
-        SetBkColor(hdcStatic, Theme::CARD_BG);
+        SetTextColor(hdcStatic, P.textPrimary);
+        SetBkColor(hdcStatic, P.cardBg);
         if (pThis) {
             if (!pThis->m_hStaticBrush) {
-                pThis->m_hStaticBrush = CreateSolidBrush(Theme::CARD_BG);
+                pThis->m_hStaticBrush = CreateSolidBrush(P.cardBg);
             }
             return (LRESULT)pThis->m_hStaticBrush;
         }
         return (LRESULT)GetStockObject(NULL_BRUSH);
     }
+
+    case WM_KEYDOWN:
+        // F2: Erişilebilirlik temaları arasında geçiş
+        if (wParam == VK_F2 && pThis) {
+            pThis->cycleTheme();
+            return 0;
+        }
+        break;
+
+    case WM_APP_THEME_CHANGED:
+        // Tema değişimi her zaman GUI thread'inde uygulanır (GDI fırçaları thread-güvenli değildir)
+        if (pThis) {
+            const ThemePalette P = pThis->activePalette();
+            HBRUSH hOldStatic = pThis->m_hStaticBrush;
+            HBRUSH hOldTerm = pThis->m_hTermBrush;
+            pThis->m_hStaticBrush = CreateSolidBrush(P.cardBg);
+            pThis->m_hTermBrush = CreateSolidBrush(P.terminalBg);
+            // Trackbar'lar arka plan fırçasını önbelleğe alır; yeniden sorgulamaları için zorla
+            for (HWND hTrack : { pThis->m_hTrackRam, pThis->m_hTrackCpu }) {
+                if (hTrack && IsWindow(hTrack)) {
+                    SendMessage(hTrack, WM_SYSCOLORCHANGE, 0, 0);
+                    LRESULT pos = SendMessage(hTrack, TBM_GETPOS, 0, 0);
+                    SendMessage(hTrack, TBM_SETPOS, TRUE, pos);
+                }
+            }
+            RedrawWindow(hWnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+            if (hOldStatic) DeleteObject(hOldStatic);
+            if (hOldTerm) DeleteObject(hOldTerm);
+            return 0;
+        }
+        break;
 
     case WM_DESTROY:
         PostQuitMessage(0);
@@ -467,6 +684,14 @@ void UIEngine::setupControls(HWND hWnd) {
         WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
         616, 638, 326, 50,
         hWnd, (HMENU)IDC_BTN_TOGGLE_SB, hInst, NULL);
+
+    // 4. Başlık Barı Erişilebilirlik Tema Seçici (Tıkla / F2 / Ctrl+T ile döngü)
+    RECT rcClient;
+    GetClientRect(hWnd, &rcClient);
+    m_hBtnTheme = CreateWindowA("BUTTON", "TEMA",
+        WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+        rcClient.right - 404, 8, 192, 28,
+        hWnd, (HMENU)IDC_BTN_THEME, hInst, NULL);
 }
 
 
@@ -493,6 +718,15 @@ void UIEngine::handleHScroll(HWND /*hWnd*/, WPARAM /*wParam*/, LPARAM lParam) {
 
 void UIEngine::handleCommand(HWND /*hWnd*/, WPARAM wParam, LPARAM /*lParam*/) {
     int id = LOWORD(wParam);
+
+    if (id == IDC_BTN_THEME) {
+        cycleTheme();
+        // Klavye odağını terminale geri ver
+        if (m_hTerminalEdit && IsWindow(m_hTerminalEdit)) {
+            SetFocus(m_hTerminalEdit);
+        }
+        return;
+    }
 
     if (id == IDC_BTN_TOGGLE_SB) {
         std::lock_guard<std::mutex> lock(m_stateMutex);
@@ -521,6 +755,49 @@ void UIEngine::onDrawItem(LPDRAWITEMSTRUCT pDIS) {
     HFONT hBtnFont = CreateFontA(15, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
     HFONT hOldFont = (HFONT)SelectObject(hdc, hBtnFont);
+    const ThemePalette P = activePalette();
+
+    if (pDIS->CtlID == IDC_BTN_THEME) {
+        // Başlık barı zemini ile köşeleri temizle
+        HBRUSH hClear = CreateSolidBrush(P.bgMain);
+        FillRect(hdc, &rc, hClear);
+        DeleteObject(hClear);
+
+        bool pressed = (pDIS->itemState & ODS_SELECTED) != 0;
+        HBRUSH hBrush = CreateSolidBrush(pressed ? BlendColor(P.cardBg, P.accentPrimary, 0.25) : P.cardBg);
+        HPEN hPen = CreatePen(PS_SOLID, 1, P.accentPrimary);
+        HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hBrush);
+        HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
+        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 12, 12);
+        SelectObject(hdc, hOldBrush);
+        SelectObject(hdc, hOldPen);
+        DeleteObject(hBrush);
+        DeleteObject(hPen);
+
+        // Palet önizleme renk örnekleri (CPU ● / RAM ■ / Uyarı / Kritik)
+        const COLORREF swatches[4] = { P.accentPrimary, P.accentSecondary, P.accentWarning, P.accentDanger };
+        int sx = rc.left + 10;
+        int sy = rc.top + (rc.bottom - rc.top) / 2 - 4;
+        for (int i = 0; i < 4; ++i) {
+            HBRUSH hSw = CreateSolidBrush(swatches[i]);
+            HPEN hSwPen = CreatePen(PS_SOLID, 1, swatches[i]);
+            SelectObject(hdc, hSw);
+            SelectObject(hdc, hSwPen);
+            if (i == 0) Ellipse(hdc, sx, sy, sx + 8, sy + 8);
+            else Rectangle(hdc, sx, sy, sx + 8, sy + 8);
+            SelectObject(hdc, hOldBrush);
+            SelectObject(hdc, hOldPen);
+            DeleteObject(hSw);
+            DeleteObject(hSwPen);
+            sx += 11;
+        }
+
+        RECT rText = rc;
+        rText.left = sx + 4;
+        rText.right -= 8;
+        std::string label = std::string("TEMA: ") + themeDisplayName(getTheme());
+        DrawTextUtf8(hdc, label, &rText, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, P.textPrimary);
+    }
 
     if (pDIS->CtlID == IDC_BTN_TOGGLE_SB) {
         bool sbEnabled = false;
@@ -529,8 +806,13 @@ void UIEngine::onDrawItem(LPDRAWITEMSTRUCT pDIS) {
             sbEnabled = m_state.sandboxEnabled;
         }
 
-        COLORREF bgCol = sbEnabled ? RGB(14, 52, 32) : RGB(22, 28, 40);
-        COLORREF borderCol = sbEnabled ? Theme::ACCENT_GREEN : RGB(48, 62, 86);
+        // Kart zemini ile köşeleri temizle
+        HBRUSH hClear = CreateSolidBrush(P.cardBg);
+        FillRect(hdc, &rc, hClear);
+        DeleteObject(hClear);
+
+        COLORREF bgCol = sbEnabled ? BlendColor(P.cardBg, P.accentSecondary, 0.18) : BlendColor(P.cardBg, P.cardBorder, 0.15);
+        COLORREF borderCol = sbEnabled ? P.accentSecondary : BlendColor(P.cardBorder, P.textMuted, 0.25);
 
         HBRUSH hBrush = CreateSolidBrush(bgCol);
         HPEN hPen = CreatePen(PS_SOLID, 2, borderCol);
@@ -549,7 +831,7 @@ void UIEngine::onDrawItem(LPDRAWITEMSTRUCT pDIS) {
         rText.left += 26;
         rText.right -= 64;
         std::string text = sbEnabled ? "SANDBOX: AKTİF" : "SANDBOX: KAPALI";
-        DrawTextUtf8(hdc, text, &rText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, sbEnabled ? Theme::ACCENT_GREEN : Theme::TEXT_MUTED);
+        DrawTextUtf8(hdc, text, &rText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, sbEnabled ? P.accentSecondary : P.textMuted);
 
         // Sağ Toggle Switch Kapsülü
         int switchW = 46;
@@ -557,8 +839,8 @@ void UIEngine::onDrawItem(LPDRAWITEMSTRUCT pDIS) {
         int switchX = rc.right - switchW - 16;
         int switchY = rc.top + (rc.bottom - rc.top - switchH) / 2;
 
-        HBRUSH hSwBg = CreateSolidBrush(sbEnabled ? RGB(10, 80, 42) : RGB(32, 42, 60));
-        HPEN hSwPen = CreatePen(PS_SOLID, 1, sbEnabled ? Theme::ACCENT_GREEN : RGB(60, 76, 102));
+        HBRUSH hSwBg = CreateSolidBrush(sbEnabled ? BlendColor(P.cardBg, P.accentSecondary, 0.32) : BlendColor(P.cardBg, P.cardBorder, 0.6));
+        HPEN hSwPen = CreatePen(PS_SOLID, 1, sbEnabled ? P.accentSecondary : BlendColor(P.cardBorder, P.textMuted, 0.4));
         SelectObject(hdc, hSwBg);
         SelectObject(hdc, hSwPen);
         RoundRect(hdc, switchX, switchY, switchX + switchW, switchY + switchH, switchH, switchH);
@@ -570,8 +852,8 @@ void UIEngine::onDrawItem(LPDRAWITEMSTRUCT pDIS) {
         int knobX = sbEnabled ? (switchX + switchW - knobRadius - 3) : (switchX + knobRadius + 3);
         int knobY = switchY + switchH / 2;
 
-        HBRUSH hKnobBrush = CreateSolidBrush(sbEnabled ? Theme::ACCENT_GREEN : RGB(140, 158, 184));
-        HPEN hKnobPen = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
+        HBRUSH hKnobBrush = CreateSolidBrush(sbEnabled ? P.accentSecondary : BlendColor(P.textMuted, P.textPrimary, 0.15));
+        HPEN hKnobPen = CreatePen(PS_SOLID, 1, P.textPrimary);
         SelectObject(hdc, hKnobBrush);
         SelectObject(hdc, hKnobPen);
         Ellipse(hdc, knobX - knobRadius, knobY - knobRadius, knobX + knobRadius, knobY + knobRadius);
@@ -599,7 +881,9 @@ void UIEngine::onPaint(HWND hWnd) {
     HBITMAP hbmMem = CreateCompatibleBitmap(hdcWindow, width, height);
     HBITMAP hbmOld = (HBITMAP)SelectObject(hdc, hbmMem);
 
-    HBRUSH hBgBrush = CreateSolidBrush(Theme::BG_MAIN);
+    const ThemePalette P = activePalette();
+
+    HBRUSH hBgBrush = CreateSolidBrush(P.bgMain);
     FillRect(hdc, &clientRect, hBgBrush);
     DeleteObject(hBgBrush);
 
@@ -632,8 +916,8 @@ void UIEngine::onPaint(HWND hWnd) {
     // 1. ÜST BAŞLIK BARI (Header Bar, y: 0..44)
     // ─────────────────────────────────────────────────────────────────────────
     // Sol Logo: Yeşil SpecTer Amblemi
-    HBRUSH hLogoBrush = CreateSolidBrush(Theme::ACCENT_GREEN);
-    HPEN hLogoPen = CreatePen(PS_SOLID, 1, Theme::ACCENT_GREEN);
+    HBRUSH hLogoBrush = CreateSolidBrush(P.accentSecondary);
+    HPEN hLogoPen = CreatePen(PS_SOLID, 1, P.accentSecondary);
     SelectObject(hdc, hLogoBrush);
     SelectObject(hdc, hLogoPen);
     POINT logoPts[6] = { {20, 16}, {26, 12}, {32, 16}, {32, 26}, {26, 30}, {20, 26} };
@@ -642,10 +926,10 @@ void UIEngine::onPaint(HWND hWnd) {
     DeleteObject(hLogoPen);
 
     SelectObject(hdc, hFontLogo);
-    TextOutUtf8(hdc, 38, 11, "SpecTer", RGB(255, 255, 255));
+    TextOutUtf8(hdc, 38, 11, "SpecTer", P.textPrimary);
 
     SelectObject(hdc, hFontSub);
-    TextOutUtf8(hdc, 110, 14, ":: Kernel Observability & Sandboxed CLI/GUI Terminal", Theme::TEXT_MUTED);
+    TextOutUtf8(hdc, 110, 14, ":: Kernel Observability & Sandboxed CLI/GUI Terminal", P.textMuted);
 
     // Ortada Aktif Süreç Rozeti
     std::string procText = "⚡ Süreç: " + (stateCopy.processName.empty() ? "Beklemede..." : stateCopy.processName);
@@ -653,12 +937,12 @@ void UIEngine::onPaint(HWND hWnd) {
         procText += " [PID: " + std::to_string(stateCopy.activePID) + "]";
     }
     SelectObject(hdc, hFontBold);
-    TextOutUtf8(hdc, 590, 13, procText, Theme::TEXT_PRIMARY);
+    TextOutUtf8(hdc, 590, 13, procText, P.textPrimary);
 
     // Sağ Üst Sandbox Durum Rozeti
     RECT rBadge = { width - 200, 8, width - 20, 36 };
-    HBRUSH hBadgeBrush = CreateSolidBrush(stateCopy.sandboxEnabled ? RGB(12, 60, 32) : RGB(40, 24, 30));
-    HPEN hBadgePen = CreatePen(PS_SOLID, 1, stateCopy.sandboxEnabled ? Theme::ACCENT_GREEN : RGB(220, 70, 70));
+    HBRUSH hBadgeBrush = CreateSolidBrush(stateCopy.sandboxEnabled ? BlendColor(P.bgMain, P.accentSecondary, 0.2) : BlendColor(P.bgMain, P.accentDanger, 0.16));
+    HPEN hBadgePen = CreatePen(PS_SOLID, 1, stateCopy.sandboxEnabled ? P.accentSecondary : P.accentDanger);
     SelectObject(hdc, hBadgeBrush);
     SelectObject(hdc, hBadgePen);
     RoundRect(hdc, rBadge.left, rBadge.top, rBadge.right, rBadge.bottom, 12, 12);
@@ -666,14 +950,14 @@ void UIEngine::onPaint(HWND hWnd) {
     DeleteObject(hBadgePen);
 
     std::string badgeStr = stateCopy.sandboxEnabled ? "🛡️ SANDBOX: AKTİF" : "⚪ SANDBOX: KAPALI";
-    DrawTextUtf8(hdc, badgeStr, &rBadge, DT_CENTER | DT_VCENTER | DT_SINGLELINE, stateCopy.sandboxEnabled ? Theme::ACCENT_GREEN : RGB(245, 120, 120));
+    DrawTextUtf8(hdc, badgeStr, &rBadge, DT_CENTER | DT_VCENTER | DT_SINGLELINE, stateCopy.sandboxEnabled ? P.accentSecondary : BlendColor(P.accentDanger, P.textPrimary, 0.25));
 
     // ─────────────────────────────────────────────────────────────────────────
     // 2. SOL PANEL: GÖMÜLÜ TERMİNAL CARD (x: 20, y: 56, w: 550, h: 694)
     // ─────────────────────────────────────────────────────────────────────────
     RECT rLeftCard = { 20, 56, 570, 750 };
-    HBRUSH hLeftCardBg = CreateSolidBrush(RGB(10, 14, 20));
-    HPEN hLeftCardPen = CreatePen(PS_SOLID, 1, Theme::CARD_BORDER);
+    HBRUSH hLeftCardBg = CreateSolidBrush(P.terminalBg);
+    HPEN hLeftCardPen = CreatePen(PS_SOLID, 1, P.cardBorder);
     SelectObject(hdc, hLeftCardBg);
     SelectObject(hdc, hLeftCardPen);
     RoundRect(hdc, rLeftCard.left, rLeftCard.top, rLeftCard.right, rLeftCard.bottom, 16, 16);
@@ -682,9 +966,9 @@ void UIEngine::onPaint(HWND hWnd) {
 
     // Terminal Başlık Çubuğu
     SelectObject(hdc, hFontBold);
-    TextOutUtf8(hdc, 34, 68, "📟 GÖMÜLÜ TERMİNAL (ShellCore REPL v1.0)", Theme::ACCENT_GREEN);
+    TextOutUtf8(hdc, 34, 68, "📟 GÖMÜLÜ TERMİNAL (ShellCore REPL v1.0)", P.accentSecondary);
 
-    HPEN hTermSep = CreatePen(PS_SOLID, 1, Theme::CARD_BORDER);
+    HPEN hTermSep = CreatePen(PS_SOLID, 1, P.cardBorder);
     SelectObject(hdc, hTermSep);
     MoveToEx(hdc, 26, 88, NULL);
     LineTo(hdc, 564, 88);
@@ -694,8 +978,8 @@ void UIEngine::onPaint(HWND hWnd) {
     // SAĞ PANEL 2x2 GRID KART ÇİZİM YARDIMCISI (specter_dashboard.jpg 1:1)
     // ─────────────────────────────────────────────────────────────────────────
     auto drawDashboardCard = [&](int x, int y, int w, int h, const std::string& title) {
-        HPEN hCardPen = CreatePen(PS_SOLID, 1, Theme::CARD_BORDER);
-        HBRUSH hCardBrush = CreateSolidBrush(Theme::CARD_BG);
+        HPEN hCardPen = CreatePen(PS_SOLID, 1, P.cardBorder);
+        HBRUSH hCardBrush = CreateSolidBrush(P.cardBg);
         HPEN hOldP = (HPEN)SelectObject(hdc, hCardPen);
         HBRUSH hOldB = (HBRUSH)SelectObject(hdc, hCardBrush);
 
@@ -708,11 +992,11 @@ void UIEngine::onPaint(HWND hWnd) {
 
         // Başlık
         SelectObject(hdc, hFontTitle);
-        TextOutUtf8(hdc, x + 20, y + 16, title, Theme::TEXT_LABEL);
+        TextOutUtf8(hdc, x + 20, y + 16, title, P.textLabel);
 
         // Sağ üst köşe "···" simgesi
         SelectObject(hdc, hFontLogo);
-        TextOutUtf8(hdc, x + w - 36, y + 10, "···", RGB(80, 96, 120));
+        TextOutUtf8(hdc, x + w - 36, y + 10, "···", BlendColor(P.textMuted, P.cardBg, 0.4));
     };
 
     const int col1X = 588;
@@ -734,7 +1018,7 @@ void UIEngine::onPaint(HWND hWnd) {
 
     // 270 Derecelik Açık Dairesel Gösterge (135° ile 405° arası)
     // 1) Arka plan koyu iz
-    HPEN hTrackPen = CreatePen(PS_SOLID, 10, RGB(28, 38, 56));
+    HPEN hTrackPen = CreatePen(PS_SOLID, 10, P.gridColor);
     HPEN hOldTrack = (HPEN)SelectObject(hdc, hTrackPen);
     Arc(hdc, gaugeCenterX - gaugeRadius, gaugeCenterY - gaugeRadius,
              gaugeCenterX + gaugeRadius, gaugeCenterY + gaugeRadius,
@@ -755,7 +1039,7 @@ void UIEngine::onPaint(HWND hWnd) {
         int ey = gaugeCenterY + (int)(gaugeRadius * std::sin(endAngle));
 
         // Dış neon ışıma
-        HPEN hGlowPen = CreatePen(PS_SOLID, 14, RGB(0, 100, 130));
+        HPEN hGlowPen = CreatePen(PS_SOLID, 14, BlendColor(P.cardBg, P.accentPrimary, 0.45));
         SelectObject(hdc, hGlowPen);
         Arc(hdc, gaugeCenterX - gaugeRadius, gaugeCenterY - gaugeRadius,
                  gaugeCenterX + gaugeRadius, gaugeCenterY + gaugeRadius,
@@ -763,7 +1047,7 @@ void UIEngine::onPaint(HWND hWnd) {
         DeleteObject(hGlowPen);
 
         // Ana parlak yay
-        HPEN hCpuPen = CreatePen(PS_SOLID, 9, Theme::ACCENT_CYAN);
+        HPEN hCpuPen = CreatePen(PS_SOLID, 9, P.accentPrimary);
         SelectObject(hdc, hCpuPen);
         Arc(hdc, gaugeCenterX - gaugeRadius, gaugeCenterY - gaugeRadius,
                  gaugeCenterX + gaugeRadius, gaugeCenterY + gaugeRadius,
@@ -775,20 +1059,20 @@ void UIEngine::onPaint(HWND hWnd) {
     SelectObject(hdc, hFontGaugeVal);
     std::string sCpu = std::to_string((int)std::round(cpuVal)) + "%";
     RECT rCpuVal = { gaugeCenterX - 60, gaugeCenterY - 20, gaugeCenterX + 60, gaugeCenterY + 20 };
-    DrawTextUtf8(hdc, sCpu, &rCpuVal, DT_CENTER | DT_VCENTER | DT_SINGLELINE, RGB(255, 255, 255));
+    DrawTextUtf8(hdc, sCpu, &rCpuVal, DT_CENTER | DT_VCENTER | DT_SINGLELINE, P.textPrimary);
 
     // Alt Bellek (MEMORY) İlerleme Çubuğu ve Değerleri
     SelectObject(hdc, hFontBold);
-    TextOutUtf8(hdc, col1X + 26, row1Y + 242, "MEMORY", Theme::TEXT_MUTED);
+    TextOutUtf8(hdc, col1X + 26, row1Y + 242, "MEMORY", P.textMuted);
 
     size_t maxLimitMB = (stateCopy.sandboxConfig.maxMemoryMB > 0) ? stateCopy.sandboxConfig.maxMemoryMB : 512;
     std::string ramValText = std::to_string(stateCopy.metrics.workingSetSizeMB) + " MB / " + std::to_string(maxLimitMB) + " MB";
     RECT rRamText = { col1X + 160, row1Y + 242, col1X + cardW - 26, row1Y + 260 };
-    DrawTextUtf8(hdc, ramValText, &rRamText, DT_RIGHT | DT_SINGLELINE, RGB(203, 213, 225));
+    DrawTextUtf8(hdc, ramValText, &rRamText, DT_RIGHT | DT_SINGLELINE, BlendColor(P.textMuted, P.textPrimary, 0.6));
 
     // Yuvarlatılmış Yeşil İlerleme Çubuğu Yuvası
     RECT rRamBg = { col1X + 26, row1Y + 270, col1X + cardW - 26, row1Y + 282 };
-    HBRUSH hRamBgBrush = CreateSolidBrush(RGB(28, 38, 56));
+    HBRUSH hRamBgBrush = CreateSolidBrush(P.gridColor);
     SelectObject(hdc, hRamBgBrush);
     RoundRect(hdc, rRamBg.left, rRamBg.top, rRamBg.right, rRamBg.bottom, 8, 8);
     DeleteObject(hRamBgBrush);
@@ -797,7 +1081,7 @@ void UIEngine::onPaint(HWND hWnd) {
     int barW = (int)((rRamBg.right - rRamBg.left) * ramRatio);
     if (barW > 6) {
         RECT rRamFill = { rRamBg.left, rRamBg.top, rRamBg.left + barW, rRamBg.bottom };
-        HBRUSH hRamFillBrush = CreateSolidBrush(Theme::ACCENT_GREEN);
+        HBRUSH hRamFillBrush = CreateSolidBrush(P.accentSecondary);
         SelectObject(hdc, hRamFillBrush);
         RoundRect(hdc, rRamFill.left, rRamFill.top, rRamFill.right, rRamFill.bottom, 8, 8);
         DeleteObject(hRamFillBrush);
@@ -814,58 +1098,58 @@ void UIEngine::onPaint(HWND hWnd) {
     int lineH = 29;
 
     // Line 1: v 📁 Process (PID: ...)
-    DrawChevron(hdc, treeX, treeY + 3, true, Theme::TEXT_MUTED);
-    DrawFolderIcon(hdc, treeX + 14, treeY + 1, Theme::ACCENT_CYAN);
+    DrawChevron(hdc, treeX, treeY + 3, true, P.textMuted);
+    DrawFolderIcon(hdc, treeX + 14, treeY + 1, P.accentPrimary);
     std::string treeP = "Process (" + std::to_string(stateCopy.activePID > 0 ? 3 : 1) + ")";
-    TextOutUtf8(hdc, treeX + 34, treeY, treeP, RGB(230, 240, 255));
+    TextOutUtf8(hdc, treeX + 34, treeY, treeP, BlendColor(P.textLabel, P.textPrimary, 0.7));
     treeY += lineH;
 
     // Line 2:   > 📁 Thread (1)
-    DrawChevron(hdc, treeX + 16, treeY + 3, false, Theme::TEXT_MUTED);
-    DrawFolderIcon(hdc, treeX + 30, treeY + 1, RGB(180, 195, 215));
-    TextOutUtf8(hdc, treeX + 50, treeY, "Thread (1)", Theme::TEXT_MUTED);
+    DrawChevron(hdc, treeX + 16, treeY + 3, false, P.textMuted);
+    DrawFolderIcon(hdc, treeX + 30, treeY + 1, BlendColor(P.textMuted, P.textPrimary, 0.4));
+    TextOutUtf8(hdc, treeX + 50, treeY, "Thread (1)", P.textMuted);
     treeY += lineH;
 
     // Line 3:   v 📁 Thread (2)
-    DrawChevron(hdc, treeX + 16, treeY + 3, true, Theme::TEXT_MUTED);
-    DrawFolderIcon(hdc, treeX + 30, treeY + 1, RGB(180, 195, 215));
+    DrawChevron(hdc, treeX + 16, treeY + 3, true, P.textMuted);
+    DrawFolderIcon(hdc, treeX + 30, treeY + 1, BlendColor(P.textMuted, P.textPrimary, 0.4));
     std::string threadNode = "Thread (" + std::to_string(std::max<DWORD>(2, stateCopy.metrics.threadCount)) + ")";
-    TextOutUtf8(hdc, treeX + 50, treeY, threadNode, RGB(230, 240, 255));
+    TextOutUtf8(hdc, treeX + 50, treeY, threadNode, BlendColor(P.textLabel, P.textPrimary, 0.7));
     treeY += lineH;
 
     // Line 4:       📄 Win32 A00 (2)
-    DrawDocIcon(hdc, treeX + 52, treeY + 1, Theme::TEXT_MUTED);
-    TextOutUtf8(hdc, treeX + 70, treeY, "Win32 A00 (2)", Theme::TEXT_MUTED);
+    DrawDocIcon(hdc, treeX + 52, treeY + 1, P.textMuted);
+    TextOutUtf8(hdc, treeX + 70, treeY, "Win32 A00 (2)", P.textMuted);
     treeY += lineH;
 
     // Line 5:       📄 Win32 CPU (1)
-    DrawDocIcon(hdc, treeX + 52, treeY + 1, Theme::TEXT_MUTED);
-    TextOutUtf8(hdc, treeX + 70, treeY, "Win32 CPU (1)", Theme::TEXT_MUTED);
+    DrawDocIcon(hdc, treeX + 52, treeY + 1, P.textMuted);
+    TextOutUtf8(hdc, treeX + 70, treeY, "Win32 CPU (1)", P.textMuted);
     treeY += lineH;
 
     // Line 6:   > 📁 Win32 Handle Trees (3)
-    DrawChevron(hdc, treeX + 16, treeY + 3, false, Theme::TEXT_MUTED);
-    DrawFolderIcon(hdc, treeX + 30, treeY + 1, RGB(180, 195, 215));
+    DrawChevron(hdc, treeX + 16, treeY + 3, false, P.textMuted);
+    DrawFolderIcon(hdc, treeX + 30, treeY + 1, BlendColor(P.textMuted, P.textPrimary, 0.4));
     std::string handleTrees = "Win32 Handle Trees (" + std::to_string(stateCopy.metrics.openHandleCount > 0 ? stateCopy.metrics.openHandleCount : 3) + ")";
-    TextOutUtf8(hdc, treeX + 50, treeY, handleTrees, Theme::TEXT_MUTED);
+    TextOutUtf8(hdc, treeX + 50, treeY, handleTrees, P.textMuted);
     treeY += lineH;
 
     // Line 7:   > 📁 Anonymous Pipes (2)
-    DrawChevron(hdc, treeX + 16, treeY + 3, false, Theme::TEXT_MUTED);
-    DrawFolderIcon(hdc, treeX + 30, treeY + 1, Theme::ACCENT_AMBER);
-    TextOutUtf8(hdc, treeX + 50, treeY, "Anonymous Pipes (2)", Theme::TEXT_MUTED);
+    DrawChevron(hdc, treeX + 16, treeY + 3, false, P.textMuted);
+    DrawFolderIcon(hdc, treeX + 30, treeY + 1, P.accentWarning);
+    TextOutUtf8(hdc, treeX + 50, treeY, "Anonymous Pipes (2)", P.textMuted);
     treeY += lineH;
 
     // Line 8:   > 📁 Win32 Handle (3)
-    DrawChevron(hdc, treeX + 16, treeY + 3, false, Theme::TEXT_MUTED);
-    DrawFolderIcon(hdc, treeX + 30, treeY + 1, RGB(180, 195, 215));
-    TextOutUtf8(hdc, treeX + 50, treeY, "Win32 Handle (3)", Theme::TEXT_MUTED);
+    DrawChevron(hdc, treeX + 16, treeY + 3, false, P.textMuted);
+    DrawFolderIcon(hdc, treeX + 30, treeY + 1, BlendColor(P.textMuted, P.textPrimary, 0.4));
+    TextOutUtf8(hdc, treeX + 50, treeY, "Win32 Handle (3)", P.textMuted);
     treeY += lineH;
 
     // Line 9:   > 📁 Anonymous Pipes (1)
-    DrawChevron(hdc, treeX + 16, treeY + 3, false, Theme::TEXT_MUTED);
-    DrawFolderIcon(hdc, treeX + 30, treeY + 1, Theme::ACCENT_AMBER);
-    TextOutUtf8(hdc, treeX + 50, treeY, "Anonymous Pipes (1)", Theme::TEXT_MUTED);
+    DrawChevron(hdc, treeX + 16, treeY + 3, false, P.textMuted);
+    DrawFolderIcon(hdc, treeX + 30, treeY + 1, P.accentWarning);
+    TextOutUtf8(hdc, treeX + 50, treeY, "Anonymous Pipes (1)", P.textMuted);
 
     // ─────────────────────────────────────────────────────────────────────────
     // KART 3 (Col 1, Row 2): "SANDBOXING"
@@ -874,16 +1158,16 @@ void UIEngine::onPaint(HWND hWnd) {
 
     SelectObject(hdc, hFontBold);
     // RAM Başlığı ve LIMIT Değeri (Slider 486'da, yazı 444'te - çakışma ve kırpılma yok)
-    TextOutUtf8(hdc, col1X + 26, row2Y + 44, "RAM", RGB(255, 255, 255));
+    TextOutUtf8(hdc, col1X + 26, row2Y + 44, "RAM", P.textPrimary);
     std::string ramLimitVal = std::to_string(stateCopy.sandboxConfig.maxMemoryMB) + " MB LIMIT";
     RECT rRamLim = { col1X + 160, row2Y + 44, col1X + cardW - 26, row2Y + 62 };
-    DrawTextUtf8(hdc, ramLimitVal, &rRamLim, DT_RIGHT | DT_SINGLELINE, Theme::TEXT_MUTED);
+    DrawTextUtf8(hdc, ramLimitVal, &rRamLim, DT_RIGHT | DT_SINGLELINE, P.textMuted);
 
     // CPU Başlığı ve LIMIT Değeri (Slider 564'te, yazı 522'de - çakışma ve kırpılma yok)
-    TextOutUtf8(hdc, col1X + 26, row2Y + 122, "CPU", RGB(255, 255, 255));
+    TextOutUtf8(hdc, col1X + 26, row2Y + 122, "CPU", P.textPrimary);
     std::string cpuLimitVal = "%" + std::to_string(stateCopy.sandboxConfig.maxCpuPercent) + " LIMIT";
     RECT rCpuLim = { col1X + 160, row2Y + 122, col1X + cardW - 26, row2Y + 140 };
-    DrawTextUtf8(hdc, cpuLimitVal, &rCpuLim, DT_RIGHT | DT_SINGLELINE, Theme::TEXT_MUTED);
+    DrawTextUtf8(hdc, cpuLimitVal, &rCpuLim, DT_RIGHT | DT_SINGLELINE, P.textMuted);
 
     // ─────────────────────────────────────────────────────────────────────────
     // KART 4 (Col 2, Row 2): "TIME GRAPH"
@@ -898,15 +1182,15 @@ void UIEngine::onPaint(HWND hWnd) {
     // Eksen Başlıkları (Sol: CPU %, Sağ: RAM MB)
     SelectObject(hdc, hFontAxis);
     RECT rCpuHead = { col2X + 2, gy - 16, gx - 4, gy };
-    DrawTextUtf8(hdc, "CPU %", &rCpuHead, DT_RIGHT | DT_SINGLELINE, Theme::ACCENT_CYAN);
+    DrawTextUtf8(hdc, "CPU %", &rCpuHead, DT_RIGHT | DT_SINGLELINE, P.accentPrimary);
 
     RECT rRamHead = { gx + gw + 4, gy - 16, col2X + cardW - 4, gy };
-    DrawTextUtf8(hdc, "RAM", &rRamHead, DT_LEFT | DT_SINGLELINE, Theme::ACCENT_GREEN);
+    DrawTextUtf8(hdc, "RAM", &rRamHead, DT_LEFT | DT_SINGLELINE, P.accentSecondary);
 
     // Grafik Zemin Dikdörtgeni
     RECT rGraph = { gx, gy, gx + gw, gy + gh };
-    HBRUSH hGraphBg = CreateSolidBrush(RGB(15, 21, 34));
-    HPEN hGraphBorder = CreatePen(PS_SOLID, 1, Theme::CARD_BORDER);
+    HBRUSH hGraphBg = CreateSolidBrush(BlendColor(P.cardBg, P.bgMain, 0.6));
+    HPEN hGraphBorder = CreatePen(PS_SOLID, 1, P.cardBorder);
     SelectObject(hdc, hGraphBg);
     SelectObject(hdc, hGraphBorder);
     RoundRect(hdc, rGraph.left, rGraph.top, rGraph.right, rGraph.bottom, 10, 10);
@@ -914,7 +1198,7 @@ void UIEngine::onPaint(HWND hWnd) {
     DeleteObject(hGraphBorder);
 
     // Dotted Izgara Çizgileri ve Yan Eksen Değerleri (5 Adım: %100, %75, %50, %25, %0)
-    HPEN hGridPen = CreatePen(PS_DOT, 1, RGB(34, 46, 68));
+    HPEN hGridPen = CreatePen(PS_DOT, 1, BlendColor(P.gridColor, P.cardBorder, 0.5));
     HPEN hOldGridPen = (HPEN)SelectObject(hdc, hGridPen);
 
     for (int step = 0; step <= 4; ++step) {
@@ -926,13 +1210,13 @@ void UIEngine::onPaint(HWND hWnd) {
         int cpuPct = 100 - step * 25;
         std::string cpuValStr = "%" + std::to_string(cpuPct);
         RECT rCpuScale = { col2X + 2, yLine - 7, gx - 5, yLine + 9 };
-        DrawTextUtf8(hdc, cpuValStr, &rCpuScale, DT_RIGHT | DT_SINGLELINE | DT_VCENTER, RGB(110, 215, 240));
+        DrawTextUtf8(hdc, cpuValStr, &rCpuScale, DT_RIGHT | DT_SINGLELINE | DT_VCENTER, BlendColor(P.accentPrimary, P.textPrimary, 0.35));
 
         // Sağ Eksen Değeri: RAM MB (maxLimitMB ... 0M)
         size_t ramStepMB = (maxLimitMB * (4 - step)) / 4;
         std::string ramValStr = std::to_string(ramStepMB) + "M";
         RECT rRamScale = { gx + gw + 5, yLine - 7, col2X + cardW - 4, yLine + 9 };
-        DrawTextUtf8(hdc, ramValStr, &rRamScale, DT_LEFT | DT_SINGLELINE | DT_VCENTER, RGB(110, 230, 160));
+        DrawTextUtf8(hdc, ramValStr, &rRamScale, DT_LEFT | DT_SINGLELINE | DT_VCENTER, BlendColor(P.accentSecondary, P.textPrimary, 0.35));
     }
 
     // Dikey Izgara Çizgileri ve Zaman İşaretleri (-60s ... 0s)
@@ -943,7 +1227,7 @@ void UIEngine::onPaint(HWND hWnd) {
         LineTo(hdc, xLine, gy + gh - 2);
 
         RECT rTime = { xLine - 18, gy + gh + 4, xLine + 18, gy + gh + 18 };
-        DrawTextUtf8(hdc, timeLabels[step], &rTime, DT_CENTER | DT_SINGLELINE, Theme::TEXT_MUTED);
+        DrawTextUtf8(hdc, timeLabels[step], &rTime, DT_CENTER | DT_SINGLELINE, P.textMuted);
     }
     SelectObject(hdc, hOldGridPen);
     DeleteObject(hGridPen);
@@ -956,7 +1240,7 @@ void UIEngine::onPaint(HWND hWnd) {
             int ptX = gx + (int)((gw * i) / (MAX_HISTORY_POINTS - 1));
             int ptY = (gy + gh - 2) - (int)((gh - 4) * rVal);
 
-            HPEN hFillPen = CreatePen(PS_SOLID, 1, RGB(8, 48, 28));
+            HPEN hFillPen = CreatePen(PS_SOLID, 1, BlendColor(BlendColor(P.cardBg, P.bgMain, 0.6), P.accentSecondary, 0.2));
             HPEN hOldFP = (HPEN)SelectObject(hdc, hFillPen);
             MoveToEx(hdc, ptX, ptY, NULL);
             LineTo(hdc, ptX, gy + gh - 2);
@@ -965,7 +1249,7 @@ void UIEngine::onPaint(HWND hWnd) {
         }
 
         // RAM Eğrisi (Neon Yeşil Dalga)
-        HPEN hRamGraphPen = CreatePen(PS_SOLID, 2, Theme::ACCENT_GREEN);
+        HPEN hRamGraphPen = CreatePen(PS_SOLID, 2, P.accentSecondary);
         HPEN hOldRamGraph = (HPEN)SelectObject(hdc, hRamGraphPen);
         for (size_t i = 0; i < historyCopy.size(); ++i) {
             double rVal = std::clamp((double)historyCopy[i].ramMB / (double)maxLimitMB, 0.0, 1.0);
@@ -978,7 +1262,7 @@ void UIEngine::onPaint(HWND hWnd) {
         DeleteObject(hRamGraphPen);
 
         // CPU Eğrisi (Neon Camgöbeği Dalga)
-        HPEN hCpuGraphPen = CreatePen(PS_SOLID, 2, Theme::ACCENT_CYAN);
+        HPEN hCpuGraphPen = CreatePen(PS_SOLID, 2, P.accentPrimary);
         HPEN hOldCpuGraph = (HPEN)SelectObject(hdc, hCpuGraphPen);
         for (size_t i = 0; i < historyCopy.size(); ++i) {
             double cVal = std::clamp(historyCopy[i].cpuUsagePercent, 0.0, 100.0);
@@ -989,6 +1273,33 @@ void UIEngine::onPaint(HWND hWnd) {
         }
         SelectObject(hdc, hOldCpuGraph);
         DeleteObject(hCpuGraphPen);
+
+        // Erişilebilirlik: Renge bağımlı olmayan şekil işaretçileri (CPU ●, RAM ■)
+        if (P.shapeMarkers) {
+            HBRUSH hCpuMk = CreateSolidBrush(P.accentPrimary);
+            HBRUSH hRamMk = CreateSolidBrush(P.accentSecondary);
+            HPEN hMkPen = CreatePen(PS_SOLID, 1, P.cardBg);
+            HPEN hOldMkPen = (HPEN)SelectObject(hdc, hMkPen);
+            HBRUSH hOldMkBrush = (HBRUSH)SelectObject(hdc, hRamMk);
+            for (size_t i = 0; i < historyCopy.size(); i += 6) {
+                int ptX = gx + (int)((gw * i) / (MAX_HISTORY_POINTS - 1));
+
+                double rVal = std::clamp((double)historyCopy[i].ramMB / (double)maxLimitMB, 0.0, 1.0);
+                int rY = (gy + gh - 2) - (int)((gh - 4) * rVal);
+                SelectObject(hdc, hRamMk);
+                Rectangle(hdc, ptX - 3, rY - 3, ptX + 4, rY + 4);
+
+                double cVal = std::clamp(historyCopy[i].cpuUsagePercent, 0.0, 100.0);
+                int cY = (gy + gh - 2) - (int)((gh - 4) * (cVal / 100.0));
+                SelectObject(hdc, hCpuMk);
+                Ellipse(hdc, ptX - 4, cY - 4, ptX + 5, cY + 5);
+            }
+            SelectObject(hdc, hOldMkBrush);
+            SelectObject(hdc, hOldMkPen);
+            DeleteObject(hCpuMk);
+            DeleteObject(hRamMk);
+            DeleteObject(hMkPen);
+        }
     }
 
     // Grafik Altındaki Lejant: ● CPU (%)    ● RAM (MB)
@@ -997,24 +1308,25 @@ void UIEngine::onPaint(HWND hWnd) {
     int legCenterX = gx + gw / 2;
 
     // CPU Lejantı
-    HBRUSH hCpuDotBrush = CreateSolidBrush(Theme::ACCENT_CYAN);
-    HPEN hCpuDotPen = CreatePen(PS_SOLID, 1, Theme::ACCENT_CYAN);
+    HBRUSH hCpuDotBrush = CreateSolidBrush(P.accentPrimary);
+    HPEN hCpuDotPen = CreatePen(PS_SOLID, 1, P.accentPrimary);
     SelectObject(hdc, hCpuDotBrush);
     SelectObject(hdc, hCpuDotPen);
     Ellipse(hdc, legCenterX - 78, legY + 4, legCenterX - 70, legY + 12);
     DeleteObject(hCpuDotBrush);
     DeleteObject(hCpuDotPen);
-    TextOutUtf8(hdc, legCenterX - 66, legY, "CPU (%)", Theme::TEXT_PRIMARY);
+    TextOutUtf8(hdc, legCenterX - 66, legY, "CPU (%)", P.textPrimary);
 
     // RAM Lejantı
-    HBRUSH hRamDotBrush = CreateSolidBrush(Theme::ACCENT_GREEN);
-    HPEN hRamDotPen = CreatePen(PS_SOLID, 1, Theme::ACCENT_GREEN);
+    HBRUSH hRamDotBrush = CreateSolidBrush(P.accentSecondary);
+    HPEN hRamDotPen = CreatePen(PS_SOLID, 1, P.accentSecondary);
     SelectObject(hdc, hRamDotBrush);
     SelectObject(hdc, hRamDotPen);
-    Ellipse(hdc, legCenterX + 16, legY + 4, legCenterX + 24, legY + 12);
+    if (P.shapeMarkers) Rectangle(hdc, legCenterX + 16, legY + 4, legCenterX + 24, legY + 12);
+    else Ellipse(hdc, legCenterX + 16, legY + 4, legCenterX + 24, legY + 12);
     DeleteObject(hRamDotBrush);
     DeleteObject(hRamDotPen);
-    TextOutUtf8(hdc, legCenterX + 29, legY, "RAM (MB)", Theme::TEXT_PRIMARY);
+    TextOutUtf8(hdc, legCenterX + 29, legY, "RAM (MB)", P.textPrimary);
 
     DeleteObject(hFontLogo);
     DeleteObject(hFontTitle);
@@ -1041,6 +1353,14 @@ LRESULT CALLBACK UIEngine::TerminalEditProc(HWND hWnd, UINT msg, WPARAM wParam, 
     WNDPROC pfnOld = pThis ? pThis->m_pfnOldEditProc : nullptr;
 
     if (msg == WM_KEYDOWN) {
+        // F2 veya Ctrl+T : Erişilebilirlik temaları arasında geçiş
+        if (wParam == VK_F2 || ((GetKeyState(VK_CONTROL) & 0x8000) && (wParam == 'T' || wParam == 't'))) {
+            if (pThis) {
+                pThis->cycleTheme();
+            }
+            return 0;
+        }
+
         // Ctrl+L : Terminal Ekranını Temizleme
         if ((GetKeyState(VK_CONTROL) & 0x8000) && (wParam == 'L' || wParam == 'l')) {
             if (pThis) {
@@ -1093,6 +1413,21 @@ LRESULT CALLBACK UIEngine::TerminalEditProc(HWND hWnd, UINT msg, WPARAM wParam, 
             }
 
             pThis->printTerminalText("\r\n");
+
+            // Yerel "tema" komutu: ShellCore'a iletilmeden UIEngine içinde işlenir
+            {
+                std::string lowered = ToLowerAscii(cmd);
+                size_t firstNonSpace = lowered.find_first_not_of(' ');
+                std::string head = (firstNonSpace == std::string::npos) ? "" : lowered.substr(firstNonSpace);
+                std::string word = head.substr(0, head.find(' '));
+                if (word == "tema" || word == "theme") {
+                    pThis->m_termHistory.push_back(cmd);
+                    pThis->m_termHistoryIndex = (int)pThis->m_termHistory.size();
+                    pThis->handleThemeCommand(head);
+                    pThis->printPrompt();
+                    return 0;
+                }
+            }
 
             if (!cmd.empty()) {
                 pThis->m_termHistory.push_back(cmd);
@@ -1194,6 +1529,262 @@ void UIEngine::replaceCurrentInput(const std::string& input) {
             SendMessageA(m_hTerminalEdit, EM_SETSEL, (WPARAM)inputStart, (LPARAM)textLen);
             SendMessageA(m_hTerminalEdit, EM_REPLACESEL, FALSE, (LPARAM)input.c_str());
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Erişilebilirlik Tema Yönetimi (Renk Körlüğü Temaları)
+// ─────────────────────────────────────────────────────────────────────────────
+ThemePalette UIEngine::activePalette() const {
+    std::lock_guard<std::mutex> lock(m_themeMutex);
+    return m_palettes[ThemeIndex(static_cast<ColorBlindTheme>(m_activeTheme.load()))];
+}
+
+void UIEngine::applyThemeChange() {
+    // GDI fırçalarının yeniden oluşturulması GUI thread'ine devredilir
+    if (m_hWnd && IsWindow(m_hWnd)) {
+        PostMessage(m_hWnd, WM_APP_THEME_CHANGED, 0, 0);
+    }
+}
+
+void UIEngine::setTheme(ColorBlindTheme theme) {
+    m_activeTheme.store(ThemeIndex(theme));
+    applyThemeChange();
+}
+
+ColorBlindTheme UIEngine::getTheme() const {
+    return static_cast<ColorBlindTheme>(ThemeIndex(static_cast<ColorBlindTheme>(m_activeTheme.load())));
+}
+
+void UIEngine::cycleTheme() {
+    int next = (m_activeTheme.load() + 1) % static_cast<int>(ColorBlindTheme::Count);
+    setTheme(static_cast<ColorBlindTheme>(next));
+}
+
+void UIEngine::setThemePalette(ColorBlindTheme theme, const ThemePalette& palette) {
+    {
+        std::lock_guard<std::mutex> lock(m_themeMutex);
+        m_palettes[ThemeIndex(theme)] = palette;
+    }
+    if (ThemeIndex(theme) == m_activeTheme.load()) applyThemeChange();
+}
+
+ThemePalette UIEngine::getThemePalette(ColorBlindTheme theme) const {
+    std::lock_guard<std::mutex> lock(m_themeMutex);
+    return m_palettes[ThemeIndex(theme)];
+}
+
+bool UIEngine::setThemeColor(ColorBlindTheme theme, const std::string& key, COLORREF color) {
+    std::string k = ToLowerAscii(key);
+    for (const auto& pk : kPaletteKeys) {
+        if (ToLowerAscii(pk.key) == k) {
+            {
+                std::lock_guard<std::mutex> lock(m_themeMutex);
+                m_palettes[ThemeIndex(theme)].*(pk.member) = color;
+            }
+            if (ThemeIndex(theme) == m_activeTheme.load()) applyThemeChange();
+            return true;
+        }
+    }
+    return false;
+}
+
+void UIEngine::resetThemePalette(ColorBlindTheme theme) {
+    setThemePalette(theme, defaultPalette(theme));
+}
+
+std::string UIEngine::themeFilePath(const std::string& path) const {
+    if (!path.empty()) return path;
+    char exePath[MAX_PATH] = {0};
+    DWORD len = GetModuleFileNameA(NULL, exePath, MAX_PATH);
+    std::string dir = (len > 0) ? std::string(exePath, len) : std::string();
+    size_t slash = dir.find_last_of("\\/");
+    dir = (slash != std::string::npos) ? dir.substr(0, slash) : ".";
+    return dir + "\\specter_themes.ini";
+}
+
+bool UIEngine::loadThemesFromFile(const std::string& path) {
+    const std::string file = themeFilePath(path);
+    if (GetFileAttributesA(file.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        return false;
+    }
+
+    char buf[64];
+    {
+        std::lock_guard<std::mutex> lock(m_themeMutex);
+        for (int t = 0; t < static_cast<int>(ColorBlindTheme::Count); ++t) {
+            const char* section = kThemeIniSections[t];
+            for (const auto& pk : kPaletteKeys) {
+                GetPrivateProfileStringA(section, pk.key, "", buf, sizeof(buf), file.c_str());
+                COLORREF c;
+                if (ParseColor(buf, c)) {
+                    m_palettes[t].*(pk.member) = c;
+                }
+            }
+            GetPrivateProfileStringA(section, "shapeMarkers", "", buf, sizeof(buf), file.c_str());
+            if (buf[0] != '\0') {
+                m_palettes[t].shapeMarkers = (buf[0] == '1' || buf[0] == 't' || buf[0] == 'T');
+            }
+        }
+    }
+
+    GetPrivateProfileStringA("General", "activeTheme", "", buf, sizeof(buf), file.c_str());
+    ColorBlindTheme active;
+    if (buf[0] != '\0' && ParseThemeName(buf, active)) {
+        m_activeTheme.store(ThemeIndex(active));
+    }
+
+    applyThemeChange();
+    return true;
+}
+
+bool UIEngine::saveThemesToFile(const std::string& path) const {
+    const std::string file = themeFilePath(path);
+    bool ok = WritePrivateProfileStringA("General", "activeTheme",
+        kThemeIniSections[ThemeIndex(getTheme())], file.c_str()) != FALSE;
+
+    std::lock_guard<std::mutex> lock(m_themeMutex);
+    for (int t = 0; t < static_cast<int>(ColorBlindTheme::Count) && ok; ++t) {
+        const char* section = kThemeIniSections[t];
+        for (const auto& pk : kPaletteKeys) {
+            ok = ok && WritePrivateProfileStringA(section, pk.key,
+                ColorToHex(m_palettes[t].*(pk.member)).c_str(), file.c_str()) != FALSE;
+        }
+        ok = ok && WritePrivateProfileStringA(section, "shapeMarkers",
+            m_palettes[t].shapeMarkers ? "1" : "0", file.c_str()) != FALSE;
+    }
+    return ok;
+}
+
+// Terminal komutu: tema [liste|<ad>|sonraki|goster|renk|isaret|sifirla|kaydet|yukle|yardim]
+void UIEngine::handleThemeCommand(const std::string& cmd) {
+    std::istringstream iss(cmd);
+    std::vector<std::string> args;
+    std::string tok;
+    while (iss >> tok) args.push_back(tok);
+
+    auto out = [this](const std::string& s) { printTerminalText(s + "\r\n"); };
+    const ColorBlindTheme current = getTheme();
+
+    auto printHelp = [&]() {
+        out("Erişilebilirlik Temaları - Kullanım:");
+        out("  tema                          : Temaları listele");
+        out("  tema <normal|protan|deutan|tritan> : Temayı uygula");
+        out("  tema sonraki                  : Sıradaki tema (Kısayol: F2 / Ctrl+T)");
+        out("  tema goster [tema]            : Palet renklerini göster");
+        out("  tema renk <anahtar> <#RRGGBB> [tema] : Rengi özelleştir");
+        out("  tema isaret <ac|kapat> [tema] : Grafik şekil işaretçileri");
+        out("  tema sifirla [tema|hepsi]     : Fabrika ayarlarına dön");
+        out("  tema kaydet / tema yukle      : specter_themes.ini kaydet/yükle");
+    };
+
+    auto printList = [&]() {
+        static const char* descs[] = {
+            "Varsayılan neon palet",
+            "Kırmızı körlüğü  (Mavi / Sarı ekseni)",
+            "Yeşil körlüğü    (Mavi / Turuncu ekseni)",
+            "Mavi körlüğü     (Kırmızı / Camgöbeği ekseni)"
+        };
+        static const char* ids[] = { "normal", "protan", "deutan", "tritan" };
+        out("Erişilebilirlik Temaları:");
+        for (int i = 0; i < static_cast<int>(ColorBlindTheme::Count); ++i) {
+            std::ostringstream line;
+            line << (i == ThemeIndex(current) ? "  * " : "    ")
+                 << std::left << std::setw(8) << ids[i] << " " << descs[i];
+            out(line.str());
+        }
+        out("Yardım için: tema yardim");
+    };
+
+    // İsteğe bağlı tema argümanını çözer; yoksa aktif tema kullanılır
+    auto themeArg = [&](size_t idx, ColorBlindTheme& t) -> bool {
+        if (idx >= args.size()) { t = current; return true; }
+        if (ParseThemeName(args[idx], t)) return true;
+        out("Hata: Bilinmeyen tema '" + args[idx] + "'. (normal|protan|deutan|tritan)");
+        return false;
+    };
+
+    if (args.size() < 2 || args[1] == "liste" || args[1] == "list") {
+        printList();
+        return;
+    }
+
+    const std::string& sub = args[1];
+    ColorBlindTheme target;
+
+    if (sub == "yardim" || sub == "help" || sub == "?") {
+        printHelp();
+    }
+    else if (sub == "sonraki" || sub == "next") {
+        cycleTheme();
+        out(std::string("Tema uygulandı: ") + themeDisplayName(getTheme()));
+    }
+    else if (sub == "goster" || sub == "show") {
+        if (!themeArg(2, target)) return;
+        ThemePalette p = getThemePalette(target);
+        out(std::string("Palet: ") + themeDisplayName(target));
+        for (const auto& pk : kPaletteKeys) {
+            std::ostringstream line;
+            line << "  " << std::left << std::setw(16) << pk.key << " " << ColorToHex(p.*(pk.member)) << "  " << pk.desc;
+            out(line.str());
+        }
+        out(std::string("  shapeMarkers     ") + (p.shapeMarkers ? "acik" : "kapali") + "    Grafik şekil işaretçileri");
+    }
+    else if (sub == "renk" || sub == "color") {
+        if (args.size() < 4) {
+            out("Kullanım: tema renk <anahtar> <#RRGGBB | R,G,B> [tema]");
+            return;
+        }
+        COLORREF c;
+        if (!ParseColor(args[3], c)) {
+            out("Hata: Geçersiz renk '" + args[3] + "'. Örnek: #FFB000 veya 255,176,0");
+            return;
+        }
+        if (!themeArg(4, target)) return;
+        if (setThemeColor(target, args[2], c)) {
+            out("Renk güncellendi: " + args[2] + " = " + ColorToHex(c) + " (" + themeDisplayName(target) + ")");
+        } else {
+            out("Hata: Bilinmeyen anahtar '" + args[2] + "'. Anahtarlar için: tema goster");
+        }
+    }
+    else if (sub == "isaret" || sub == "markers") {
+        if (args.size() < 3 || (args[2] != "ac" && args[2] != "kapat" && args[2] != "on" && args[2] != "off")) {
+            out("Kullanım: tema isaret <ac|kapat> [tema]");
+            return;
+        }
+        if (!themeArg(3, target)) return;
+        ThemePalette p = getThemePalette(target);
+        p.shapeMarkers = (args[2] == "ac" || args[2] == "on");
+        setThemePalette(target, p);
+        out(std::string("Şekil işaretçileri ") + (p.shapeMarkers ? "açıldı" : "kapatıldı") + " (" + themeDisplayName(target) + ")");
+    }
+    else if (sub == "sifirla" || sub == "reset") {
+        if (args.size() >= 3 && (args[2] == "hepsi" || args[2] == "all")) {
+            for (int i = 0; i < static_cast<int>(ColorBlindTheme::Count); ++i) {
+                resetThemePalette(static_cast<ColorBlindTheme>(i));
+            }
+            out("Tüm temalar fabrika ayarlarına döndürüldü.");
+            return;
+        }
+        if (!themeArg(2, target)) return;
+        resetThemePalette(target);
+        out(std::string("Tema fabrika ayarlarına döndürüldü: ") + themeDisplayName(target));
+    }
+    else if (sub == "kaydet" || sub == "save") {
+        if (saveThemesToFile()) out("Temalar kaydedildi: " + themeFilePath(""));
+        else out("Hata: Tema dosyası yazılamadı: " + themeFilePath(""));
+    }
+    else if (sub == "yukle" || sub == "load") {
+        if (loadThemesFromFile()) out(std::string("Temalar yüklendi. Aktif tema: ") + themeDisplayName(getTheme()));
+        else out("Hata: Tema dosyası bulunamadı: " + themeFilePath(""));
+    }
+    else if (ParseThemeName(sub, target)) {
+        setTheme(target);
+        out(std::string("Tema uygulandı: ") + themeDisplayName(target));
+    }
+    else {
+        out("Hata: Bilinmeyen alt komut '" + sub + "'.");
+        printHelp();
     }
 }
 

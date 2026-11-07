@@ -41,6 +41,47 @@ struct MetricSample {
 using SandboxUpdateCallback = std::function<void(const SandboxConfig&, bool)>;
 
 /**
+ * @enum ColorBlindTheme
+ * @brief Erişilebilirlik temaları: Varsayılan + 3 temel renk körlüğü tipi.
+ *
+ *  - Protanopia   : Kırmızı (L-koni) körlüğü  → Mavi / Sarı ekseni kullanılır.
+ *  - Deuteranopia : Yeşil (M-koni) körlüğü    → Mavi / Turuncu ekseni kullanılır.
+ *  - Tritanopia   : Mavi (S-koni) körlüğü     → Kırmızı / Camgöbeği ekseni kullanılır.
+ */
+enum class ColorBlindTheme : int {
+    Normal = 0,
+    Protanopia,
+    Deuteranopia,
+    Tritanopia,
+    Count
+};
+
+/**
+ * @struct ThemePalette
+ * @brief Dashboard'un tüm renklerini barındıran, çalışma anında özelleştirilebilir palet.
+ *
+ * Türetilmiş tonlar (ışıma, dolgu, koyu toggle zemini vb.) bu temel renklerden
+ * otomatik harmanlanarak üretilir; böylece bir rengi değiştirmek tüm arayüze yansır.
+ */
+struct ThemePalette {
+    COLORREF bgMain;          ///< Ana pencere zemini
+    COLORREF cardBg;          ///< Kart paneli zemini
+    COLORREF cardBorder;      ///< Kart çerçevesi
+    COLORREF textPrimary;     ///< Birincil (parlak) metin
+    COLORREF textMuted;       ///< Soluk açıklama metni
+    COLORREF textLabel;       ///< Kart başlık metni
+    COLORREF accentPrimary;   ///< CPU göstergesi / grafiği
+    COLORREF accentSecondary; ///< RAM göstergesi / grafiği & "aktif" durumu
+    COLORREF accentWarning;   ///< Uyarı vurgusu
+    COLORREF accentDanger;    ///< Kritik / "kapalı" durumu
+    COLORREF gridColor;       ///< Grafik ızgarası & gösterge izi
+    COLORREF terminalBg;      ///< Gömülü terminal zemini
+    COLORREF terminalText;    ///< Gömülü terminal metni
+    bool     shapeMarkers;    ///< Grafikte renge ek olarak şekil işaretçileri (●/■) çiz
+};
+
+
+/**
  * @class UIEngine
  * @brief 4. Üye Sorumluluğu: Profesyonel Grafiksel Arayüz (GUI Visual Dashboard).
  * 
@@ -102,6 +143,29 @@ public:
     void clearTerminal();
     void printPrompt();
 
+    // ── Renk Körlüğü Erişilebilirlik Temaları ──
+    /** @brief Aktif temayı değiştirir ve arayüzü yeniden çizer. */
+    void setTheme(ColorBlindTheme theme);
+    /** @brief Aktif temayı döndürür. */
+    ColorBlindTheme getTheme() const;
+    /** @brief Sıradaki temaya geçer (Normal → Protan → Deutan → Tritan → Normal). */
+    void cycleTheme();
+    /** @brief Bir temanın paletini tamamen değiştirir (özelleştirme). */
+    void setThemePalette(ColorBlindTheme theme, const ThemePalette& palette);
+    /** @brief Bir temanın güncel paletini döndürür. */
+    ThemePalette getThemePalette(ColorBlindTheme theme) const;
+    /** @brief Paletteki tek bir rengi anahtar adıyla değiştirir (örn. "accentPrimary"). */
+    bool setThemeColor(ColorBlindTheme theme, const std::string& key, COLORREF color);
+    /** @brief Bir temayı fabrika ayarlarına döndürür. */
+    void resetThemePalette(ColorBlindTheme theme);
+    /** @brief Temaları INI dosyasından yükler (boş yol = exe yanındaki specter_themes.ini). */
+    bool loadThemesFromFile(const std::string& path = "");
+    /** @brief Temaları INI dosyasına kaydeder (boş yol = exe yanındaki specter_themes.ini). */
+    bool saveThemesToFile(const std::string& path = "") const;
+    /** @brief Fabrika çıkışı varsayılan paleti döndürür. */
+    static ThemePalette defaultPalette(ColorBlindTheme theme);
+    /** @brief Tema için okunabilir Türkçe ad. */
+    static const char* themeDisplayName(ColorBlindTheme theme);
 
 private:
     void guiThreadFunc(HINSTANCE hInstance);
@@ -114,6 +178,10 @@ private:
     void onPaint(HWND hWnd);
     void onDrawItem(LPDRAWITEMSTRUCT pDIS);
     void replaceCurrentInput(const std::string& input);
+    ThemePalette activePalette() const;
+    void applyThemeChange();
+    void handleThemeCommand(const std::string& cmd);
+    std::string themeFilePath(const std::string& path) const;
 
 private:
     HWND m_hWnd = NULL;                          ///< Win32 GUI Pencere Handle'ı
@@ -147,6 +215,12 @@ private:
     HWND m_hBtnApply = NULL;
     HWND m_hLblRamVal = NULL;
     HWND m_hLblCpuVal = NULL;
+    HWND m_hBtnTheme = NULL;                     ///< Başlık barındaki tema seçici buton
+
+    // Erişilebilirlik Tema Durumu
+    mutable std::mutex m_themeMutex;
+    ThemePalette m_palettes[static_cast<int>(ColorBlindTheme::Count)];
+    std::atomic<int> m_activeTheme{0};
 
     // GDI Kaynakları
     HBRUSH m_hStaticBrush = NULL;               ///< WM_CTLCOLORSTATIC için kart arkaplan fırçası

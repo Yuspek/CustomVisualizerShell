@@ -323,7 +323,7 @@ UIEngine::UIEngine()
         m_palettes[i] = defaultPalette(static_cast<ColorBlindTheme>(i));
     }
     m_state.processName = "SpecTer Beklemede...";
-    m_state.sandboxConfig.maxMemoryMB = 256;
+    m_state.sandboxConfig.maxMemoryMB = 2048;
     m_state.sandboxConfig.maxCpuPercent = 50;
     m_state.sandboxEnabled = false;
 
@@ -793,7 +793,7 @@ void UIEngine::setupControls(HWND hWnd) {
         610, 486, 338, 24,
         hWnd, (HMENU)IDC_TRACK_RAM, hInst, NULL);
     SendMessage(m_hTrackRam, TBM_SETRANGE, TRUE, MAKELPARAM(64, 2048));
-    SendMessage(m_hTrackRam, TBM_SETPOS, TRUE, 256);
+    SendMessage(m_hTrackRam, TBM_SETPOS, TRUE, 2048);
 
     // 2. CPU Slider (10% - 100%) - Yazı 535'te, Slider 564'te (15px temiz boşluk)
     m_hTrackCpu = CreateWindowA(TRACKBAR_CLASSA, "CPU Slider",
@@ -1334,7 +1334,7 @@ void UIEngine::onPaint(HWND hWnd) {
     drawDashboardCard(col1X, row2Y, cardW, cardH, "SANDBOXING", anyBreach);
 
     SelectObject(hdc, hFontBold);
-    std::string ramTitle = isRamBreach ? "RAM ⚠️ LİMİTTE!" : "RAM";
+    std::string ramTitle = isRamBreach ? "RAM ⚠️ LİMİTTE!" : "RAM / 2048 MB";
     TextOutUtf8(hdc, col1X + S_D(26), row2Y + S_D(44), ramTitle, isRamBreach ? P.accentDanger : P.textPrimary);
     std::string ramLimitVal = std::to_string(stateCopy.sandboxConfig.maxMemoryMB) + " MB LIMIT";
     RECT rRamLim = { col1X + S_D(160), row2Y + S_D(44), col1X + cardW - S_D(26), row2Y + S_D(62) };

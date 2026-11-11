@@ -18,7 +18,7 @@ namespace OSVisualizer {
  * maxCpuPercent: Sürecin kullanabileceği maksimum CPU yüzdesi (1-100 arası).
  */
 struct SandboxConfig {
-    size_t maxMemoryMB   = 256;   ///< Varsayılan RAM limiti: 256 MB
+    size_t maxMemoryMB   = 2048;  ///< Varsayılan RAM limiti: 2048 MB
     DWORD  maxCpuPercent = 50;    ///< Varsayılan CPU limiti: %50
 };
 

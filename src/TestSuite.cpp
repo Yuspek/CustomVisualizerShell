@@ -93,7 +93,7 @@ static void testJobManager() {
     // Test 1: Varsayılan ayarlar
     TEST_ASSERT(jm.isEnabled() == false, "JobManager varsayılan olarak kapalı olmalı");
     OSVisualizer::SandboxConfig cfg = jm.getConfig();
-    TEST_ASSERT(cfg.maxMemoryMB == 256, "Varsayılan RAM limiti 256 MB olmalı");
+    TEST_ASSERT(cfg.maxMemoryMB == 2048, "Varsayılan RAM limiti 2048 MB olmalı");
     TEST_ASSERT(cfg.maxCpuPercent == 50, "Varsayılan CPU limiti %50 olmalı");
 
     // Test 2: Ayar değiştirme

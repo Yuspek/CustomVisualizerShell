@@ -75,6 +75,9 @@ public:
     using OutputCallback = std::function<void(const std::string&)>;
     void executeLineStream(const std::string& inputLine, OutputCallback outputCb);
 
+    // Oturum denetim ve sistem özet raporunu dosyaya kaydeder (report / export)
+    bool exportReport(const std::string& filename = "specter_report.txt") const;
+
 private:
     bool m_running;                         // REPL döngüsü çalışıyor mu?
     std::atomic<HANDLE> m_hCurrentProcess{NULL}; // Çalışan alt sürecin handle'ı (Ctrl+C için)

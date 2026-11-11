@@ -199,6 +199,12 @@ bool ShellCore::executeBuiltIn(const std::vector<std::string>& args) {
         return true;
     }
 
+    if (cmd == "report" || cmd == "export") {
+        std::string filename = (args.size() > 1) ? args[1] : "specter_report.txt";
+        exportReport(filename);
+        return true;
+    }
+
     if (cmd == "time" || cmd == "date") {
         SYSTEMTIME st;
         GetLocalTime(&st);
@@ -744,7 +750,9 @@ void ShellCore::printHelp() const {
     std::cout << "    ps / procs       : Çalışmakta olan süreçleri ve PID'leri listeler.\n";
     std::cout << "    kill <PID>       : PID belirtilen süreci sonlandırır.\n";
     std::cout << "    time <komut>     : Komutun çalışma süresini milisaniye cinsinden ölçer.\n";
-    std::cout << "    history          : Komut geçmişini listeler.\n\n";
+    std::cout << "    history          : Komut geçmişini listeler.\n";
+    std::cout << "    report / export  : Oturum denetim ve sistem özet raporunu dışa aktarır (örn: report veya report log.txt).\n";
+    std::cout << "    [TAB] Tuşu       : Komut ve dosya adlarını otomatik tamamlama.\n\n";
     std::cout << "  Dosya Sistemi Komutları (Win32 API ile):\n";
     std::cout << "    dir / ls         : Klasör içeriğini listeler.\n";
     std::cout << "    mkdir / md <ad>  : Yeni klasör oluşturur.\n";
@@ -909,6 +917,78 @@ void ShellCore::printHistory() const {
         std::cout << "  | " << std::setw(3) << (i + 1) << ". " << m_history[i] << "\n";
     }
     std::cout << "  +--------------------------------------------------+\n\n";
+}
+
+bool ShellCore::exportReport(const std::string& filename) const {
+    std::ofstream ofs(filename);
+    if (!ofs.is_open()) {
+        std::cerr << "[HATA]: Rapor dosyası oluşturulamadı: " << filename << "\n";
+        return false;
+    }
+
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+
+    MEMORYSTATUSEX memStatus;
+    memStatus.dwLength = sizeof(memStatus);
+    GlobalMemoryStatusEx(&memStatus);
+
+    char computerName[MAX_COMPUTERNAME_LENGTH + 1] = { 0 };
+    DWORD nameLen = sizeof(computerName);
+    GetComputerNameA(computerName, &nameLen);
+
+    char userName[256] = { 0 };
+    DWORD uLen = sizeof(userName);
+    GetUserNameA(userName, &uLen);
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+
+    char timeBuf[64];
+    snprintf(timeBuf, sizeof(timeBuf), "%04d-%02d-%02d %02d:%02d:%02d",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+
+    ofs << "================================================================================\n";
+    ofs << "                 SpecTer - OTURUM & GÜVENLİK DENETİM RAPORU\n";
+    ofs << "================================================================================\n";
+    ofs << "Oluşturulma Zamanı : " << timeBuf << "\n";
+    ofs << "Rapor Dosyası      : " << filename << "\n";
+    ofs << "Kullanıcı / PC     : " << userName << " @ " << computerName << "\n";
+    ofs << "Çalışma Dizini     : " << getCurrentWorkingDirectory() << "\n\n";
+
+    ofs << "--------------------------------------------------------------------------------\n";
+    ofs << "1. SİSTEM VE DONANIM BİLGİSİ\n";
+    ofs << "--------------------------------------------------------------------------------\n";
+    ofs << "İşletim Sistemi    : Windows (x64 / Win32 Native Kernel)\n";
+    ofs << "CPU Mimarisi       : " << (sysInfo.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ? "x64 (64-bit)" : "x86 (32-bit)") << "\n";
+    ofs << "Mantıksal Çekirdek : " << sysInfo.dwNumberOfProcessors << " Çekirdek\n";
+    ofs << "Sayfa Boyutu       : " << sysInfo.dwPageSize << " Byte\n";
+    ofs << "Toplam Fiziksel RAM: " << (memStatus.ullTotalPhys / (1024 * 1024)) << " MB (" << (memStatus.ullTotalPhys / (1024 * 1024 * 1024)) << " GB)\n";
+    ofs << "Kullanılabilir RAM : " << (memStatus.ullAvailPhys / (1024 * 1024)) << " MB\n";
+    ofs << "Sistem Bellek Yükü : %" << memStatus.dwMemoryLoad << "\n\n";
+
+    ofs << "--------------------------------------------------------------------------------\n";
+    ofs << "2. OTURUM KOMUT GEÇMİŞİ (" << m_history.size() << " Komut Kaydedildi)\n";
+    ofs << "--------------------------------------------------------------------------------\n";
+    if (m_history.empty()) {
+        ofs << "  (Bu oturumda henüz komut çalıştırılmadı)\n";
+    } else {
+        for (size_t i = 0; i < m_history.size(); ++i) {
+            ofs << "  [" << std::setw(3) << (i + 1) << "] " << m_history[i] << "\n";
+        }
+    }
+    ofs << "\n";
+
+    ofs << "================================================================================\n";
+    ofs << "            SpecTer Observability & Sandboxed CLI/GUI Terminal Platform          \n";
+    ofs << "================================================================================\n";
+    ofs.close();
+
+    char fullPath[MAX_PATH];
+    GetFullPathNameA(filename.c_str(), MAX_PATH, fullPath, NULL);
+    std::cout << "\n  [✓] SpecTer oturum raporu başarıyla kaydedildi:\n";
+    std::cout << "      -> " << fullPath << "\n\n";
+    return true;
 }
 
 void ShellCore::writeAuditLog(const std::string& entry) const {

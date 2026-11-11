@@ -68,6 +68,14 @@ static void testShellCore() {
     });
     TEST_ASSERT(sysinfoReceived == true, "ShellCore 'sysinfo' komutu sistem özetini döndürmeli");
 
+    // Test: report / export komutu
+    const std::string testReportFile = "test_specter_report.txt";
+    bool reportOk = shell.exportReport(testReportFile);
+    TEST_ASSERT(reportOk == true, "ShellCore 'report' fonksiyonu rapor dosyasını başarıyla oluşturmalı");
+    DWORD fileAttr = GetFileAttributesA(testReportFile.c_str());
+    TEST_ASSERT(fileAttr != INVALID_FILE_ATTRIBUTES, "Oluşturulan rapor dosyası diskte doğrulanmalı");
+    DeleteFileA(testReportFile.c_str());
+
     bool exitReceived = false;
     shell.executeLineStream("exit", [&exitReceived](const std::string& out) {
         if (out == ShellCore::kExitMarker) {
@@ -171,11 +179,25 @@ static void testUIEngine() {
     ui.updateDashboard(state);
     TEST_ASSERT(true, "UIEngine dashboard metrik güncellemesi hatasız çalışmalı");
 
-    // Test 4: Gömülü Terminal metin basımı
+    // Test 4: Gömülü Terminal metin basımı ve prompt
     ui.printTerminalText("SpecTer Otomasyon Testi: Terminal Çıktısı Doğrulandı.\r\n");
     TEST_ASSERT(true, "UIEngine gömülü terminal metin ekleme hatasız çalışmalı");
+    ui.printPrompt();
+    TEST_ASSERT(true, "UIEngine terminal komut satırı prompt'unu hatasız basmalı");
 
-    // Test 5: Pencerenin kapatılması ve kaynak temizliği
+    // Test 5: Sandbox Limit Aşım Görsel Uyarı Durumu (Fikir 3)
+    state.metrics.workingSetSizeMB = 600; // Limit (512 MB) aşıldı
+    state.metrics.cpuUsagePercent = 85.0; // Limit (%60) aşıldı
+    ui.updateDashboard(state);
+    TEST_ASSERT(true, "UIEngine sandbox limit aşımı durumunu (Fikir 3) görsel olarak işlemeli");
+
+    // Test 6: Dinamik Pencere Boyutlandırma ve En-Boy Oranı Ölçekleme
+    ui.resizeDashboard(1750, 1000);
+    Sleep(50);
+    TEST_ASSERT(ui.isWindowOpen() == true, "UIEngine dinamik boyutlandırma ve oran koruma başarıyla uygulanmalı");
+    TEST_ASSERT(ui.getScale() > 0.0, "UIEngine ölçekleme faktörü pozitif ve geçerli olmalı");
+
+    // Test 7: Pencerenin kapatılması ve kaynak temizliği
     ui.closeDashboard();
     TEST_ASSERT(ui.isWindowOpen() == false, "UIEngine penceresi kapatıldıktan sonra kapalı görünmeli");
 }

@@ -120,6 +120,16 @@ public:
     bool isWindowOpen() const;
 
     /**
+     * @brief GUI penceresini belirtilen boyutlara yeniden boyutlandırır.
+     */
+    void resizeDashboard(int width, int height);
+
+    /**
+     * @brief Güncel görünüm ölçekleme faktörünü (1400:800 oranına göre) döndürür.
+     */
+    double getScale() const { return m_scale; }
+
+    /**
      * @brief GUI penceresini kapatır ve kaynakları serbest bırakır.
      */
     void closeDashboard();
@@ -178,6 +188,9 @@ private:
     void onPaint(HWND hWnd);
     void onDrawItem(LPDRAWITEMSTRUCT pDIS);
     void replaceCurrentInput(const std::string& input);
+    void updateLayout(int clientWidth, int clientHeight);
+    void handleTabCompletion();
+    void resetTabCompletion();
     ThemePalette activePalette() const;
     void applyThemeChange();
     void handleThemeCommand(const std::string& cmd);
@@ -196,6 +209,16 @@ private:
 
     SandboxUpdateCallback m_sandboxCallback = nullptr;
 
+    // Görünüm (Viewport), En-Boy Oranı ve Dinamik Ölçekleme
+    int m_viewportX = 0;
+    int m_viewportY = 0;
+    int m_viewportW = 1400;
+    int m_viewportH = 800;
+    double m_scale = 1.0;
+
+    // Görsel Sandbox Limit Aşım Takibi
+    bool m_lastBreachState = false;
+
     // Sol Panel Gömülü Terminal Kontrolleri
     HWND m_hTerminalEdit = NULL;
     HFONT m_hTermFont = NULL;
@@ -205,8 +228,13 @@ private:
     InterruptHandler m_interruptHandler = nullptr;
 
     std::vector<std::string> m_termHistory;
-
     int m_termHistoryIndex = -1;
+
+    // Terminal Otomatik Tamamlama (Tab Completion) Durumu
+    std::string m_lastTabPrefix;
+    std::string m_tabBase;
+    std::vector<std::string> m_tabMatches;
+    size_t m_tabMatchIndex = 0;
 
     // Sağ Panel Win32 Kontrol Handle'ları
     HWND m_hTrackRam = NULL;

@@ -148,7 +148,11 @@ static bool ParseColor(std::string s, COLORREF& out) {
 
     if (s.find(',') != std::string::npos) {
         int r = -1, g = -1, b = -1;
+#if defined(_MSC_VER)
+        if (sscanf_s(s.c_str(), "%d,%d,%d", &r, &g, &b) == 3 &&
+#else
         if (sscanf(s.c_str(), "%d,%d,%d", &r, &g, &b) == 3 &&
+#endif
             r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255) {
             out = RGB(r, g, b);
             return true;
@@ -395,6 +399,12 @@ bool UIEngine::isWindowOpen() const {
     return m_running.load() && m_hWnd != NULL && IsWindow(m_hWnd);
 }
 
+void UIEngine::resizeDashboard(int width, int height) {
+    if (m_hWnd && IsWindow(m_hWnd)) {
+        SetWindowPos(m_hWnd, NULL, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
 void UIEngine::closeDashboard() {
     if (m_running.load()) {
         m_running.store(false);
@@ -451,9 +461,17 @@ void UIEngine::guiThreadFunc(HINSTANCE hInstance) {
 
     RegisterClassExA(&wc);
 
-    // Pencere Boyutu: 1400 x 800 (specter_dashboard.jpg 1:1 Tam Eşleşme)
-    const int winWidth = 1400;
-    const int winHeight = 800;
+    // Pencere Boyutu: 1400 x 800 (Oran: 7:4 / 1.75 Sabit En-Boy Oranı)
+    const int baseClientW = 1400;
+    const int baseClientH = 800;
+
+    DWORD dwStyle = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
+    DWORD dwExStyle = WS_EX_APPWINDOW;
+
+    RECT rcReq = { 0, 0, baseClientW, baseClientH };
+    AdjustWindowRectEx(&rcReq, dwStyle, FALSE, dwExStyle);
+    int winWidth = rcReq.right - rcReq.left;
+    int winHeight = rcReq.bottom - rcReq.top;
 
     int posX = (GetSystemMetrics(SM_CXSCREEN) - winWidth) / 2;
     int posY = (GetSystemMetrics(SM_CYSCREEN) - winHeight) / 2;
@@ -461,10 +479,10 @@ void UIEngine::guiThreadFunc(HINSTANCE hInstance) {
     if (posY < 0) posY = 10;
 
     HWND hWnd = CreateWindowExA(
-        WS_EX_APPWINDOW,
+        dwExStyle,
         CLASS_NAME,
         "SpecTer | Kernel Observability & Sandboxed CLI/GUI Terminal",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
+        dwStyle,
         posX, posY, winWidth, winHeight,
         NULL, NULL, hInstance, this
     );
@@ -478,6 +496,10 @@ void UIEngine::guiThreadFunc(HINSTANCE hInstance) {
     m_hWnd = hWnd;
 
     setupControls(hWnd);
+
+    RECT rcClient;
+    GetClientRect(hWnd, &rcClient);
+    updateLayout(rcClient.right - rcClient.left, rcClient.bottom - rcClient.top);
 
     ShowWindow(hWnd, SW_SHOW);
     UpdateWindow(hWnd);
@@ -514,6 +536,79 @@ LRESULT CALLBACK UIEngine::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
     }
 
     switch (msg) {
+    case WM_GETMINMAXINFO: {
+        LPMINMAXINFO lpMMI = reinterpret_cast<LPMINMAXINFO>(lParam);
+        if (lpMMI) {
+            RECT rcMin = { 0, 0, 980, 560 }; // 1400*0.7 x 800*0.7
+            DWORD style = (DWORD)GetWindowLongA(hWnd, GWL_STYLE);
+            DWORD exStyle = (DWORD)GetWindowLongA(hWnd, GWL_EXSTYLE);
+            AdjustWindowRectEx(&rcMin, style, FALSE, exStyle);
+            lpMMI->ptMinTrackSize.x = rcMin.right - rcMin.left;
+            lpMMI->ptMinTrackSize.y = rcMin.bottom - rcMin.top;
+        }
+        return 0;
+    }
+
+    case WM_SIZING: {
+        RECT* prc = reinterpret_cast<RECT*>(lParam);
+        if (!prc) break;
+
+        RECT rcDummy = { 0, 0, 1400, 800 };
+        DWORD style = (DWORD)GetWindowLongA(hWnd, GWL_STYLE);
+        DWORD exStyle = (DWORD)GetWindowLongA(hWnd, GWL_EXSTYLE);
+        AdjustWindowRectEx(&rcDummy, style, FALSE, exStyle);
+        int ncW = (rcDummy.right - rcDummy.left) - 1400;
+        int ncH = (rcDummy.bottom - rcDummy.top) - 800;
+
+        int curW = (prc->right - prc->left) - ncW;
+        int curH = (prc->bottom - prc->top) - ncH;
+        if (curW < 100) curW = 100;
+        if (curH < 100) curH = 100;
+
+        const double TARGET_RATIO = 1400.0 / 800.0;
+
+        switch (wParam) {
+        case WMSZ_LEFT:
+        case WMSZ_RIGHT:
+            curH = static_cast<int>(curW / TARGET_RATIO);
+            prc->bottom = prc->top + curH + ncH;
+            break;
+        case WMSZ_TOP:
+        case WMSZ_BOTTOM:
+            curW = static_cast<int>(curH * TARGET_RATIO);
+            prc->right = prc->left + curW + ncW;
+            break;
+        case WMSZ_TOPLEFT:
+            curW = static_cast<int>(curH * TARGET_RATIO);
+            prc->left = prc->right - curW - ncW;
+            break;
+        case WMSZ_TOPRIGHT:
+            curW = static_cast<int>(curH * TARGET_RATIO);
+            prc->right = prc->left + curW + ncW;
+            break;
+        case WMSZ_BOTTOMLEFT:
+            curW = static_cast<int>(curH * TARGET_RATIO);
+            prc->left = prc->right - curW - ncW;
+            break;
+        case WMSZ_BOTTOMRIGHT:
+        default:
+            curW = static_cast<int>(curH * TARGET_RATIO);
+            prc->right = prc->left + curW + ncW;
+            break;
+        }
+        return TRUE;
+    }
+
+    case WM_SIZE:
+        if (pThis && wParam != SIZE_MINIMIZED) {
+            int cx = LOWORD(lParam);
+            int cy = HIWORD(lParam);
+            pThis->updateLayout(cx, cy);
+            InvalidateRect(hWnd, NULL, FALSE);
+            return 0;
+        }
+        break;
+
     case WM_PAINT:
         if (pThis) {
             pThis->onPaint(hWnd);
@@ -543,6 +638,35 @@ LRESULT CALLBACK UIEngine::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
                     pThis->m_hActiveProcess = NULL;
                 }
             }
+
+            // Sandbox Limit Aşımı Tespiti ve Terminal Uyarısı (Fikir 3)
+            {
+                std::lock_guard<std::mutex> lock(pThis->m_stateMutex);
+                bool isRamBreach = pThis->m_state.sandboxEnabled &&
+                                   pThis->m_state.sandboxConfig.maxMemoryMB > 0 &&
+                                   pThis->m_state.metrics.workingSetSizeMB >= pThis->m_state.sandboxConfig.maxMemoryMB;
+                bool isCpuBreach = pThis->m_state.sandboxEnabled &&
+                                   pThis->m_state.sandboxConfig.maxCpuPercent > 0 &&
+                                   pThis->m_state.metrics.cpuUsagePercent >= static_cast<double>(pThis->m_state.sandboxConfig.maxCpuPercent);
+                bool anyBreach = isRamBreach || isCpuBreach;
+
+                if (anyBreach && !pThis->m_lastBreachState) {
+                    pThis->m_lastBreachState = true;
+                    std::string warn = "\r\n[⚠️ GÜVENLİK UYARISI]: Süreç sandbox kaynak sınırına dayandı!";
+                    if (isRamBreach) {
+                        warn += " (RAM Sınırı: " + std::to_string(pThis->m_state.sandboxConfig.maxMemoryMB) + " MB)";
+                    }
+                    if (isCpuBreach) {
+                        warn += " (CPU Sınırı: %" + std::to_string(pThis->m_state.sandboxConfig.maxCpuPercent) + ")";
+                    }
+                    warn += "\r\n";
+                    pThis->printTerminalText(warn);
+                    pThis->printPrompt();
+                } else if (!anyBreach) {
+                    pThis->m_lastBreachState = false;
+                }
+            }
+
             InvalidateRect(hWnd, NULL, FALSE);
             return 0;
         }
@@ -752,7 +876,8 @@ void UIEngine::onDrawItem(LPDRAWITEMSTRUCT pDIS) {
     RECT rc = pDIS->rcItem;
 
     SetBkMode(hdc, TRANSPARENT);
-    HFONT hBtnFont = CreateFontA(15, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    int btnFontSize = std::clamp(static_cast<int>(15 * m_scale), 9, 24);
+    HFONT hBtnFont = CreateFontA(btnFontSize, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
     HFONT hOldFont = (HFONT)SelectObject(hdc, hBtnFont);
     const ThemePalette P = activePalette();
@@ -768,7 +893,8 @@ void UIEngine::onDrawItem(LPDRAWITEMSTRUCT pDIS) {
         HPEN hPen = CreatePen(PS_SOLID, 1, P.accentPrimary);
         HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hBrush);
         HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
-        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 12, 12);
+        int rRad = (std::max)(6, static_cast<int>(12 * m_scale));
+        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, rRad, rRad);
         SelectObject(hdc, hOldBrush);
         SelectObject(hdc, hOldPen);
         DeleteObject(hBrush);
@@ -776,25 +902,26 @@ void UIEngine::onDrawItem(LPDRAWITEMSTRUCT pDIS) {
 
         // Palet önizleme renk örnekleri (CPU ● / RAM ■ / Uyarı / Kritik)
         const COLORREF swatches[4] = { P.accentPrimary, P.accentSecondary, P.accentWarning, P.accentDanger };
-        int sx = rc.left + 10;
-        int sy = rc.top + (rc.bottom - rc.top) / 2 - 4;
+        int swatchSize = std::clamp(static_cast<int>(8 * m_scale), 6, 16);
+        int sx = rc.left + static_cast<int>(10 * m_scale);
+        int sy = rc.top + (rc.bottom - rc.top - swatchSize) / 2;
         for (int i = 0; i < 4; ++i) {
             HBRUSH hSw = CreateSolidBrush(swatches[i]);
             HPEN hSwPen = CreatePen(PS_SOLID, 1, swatches[i]);
             SelectObject(hdc, hSw);
             SelectObject(hdc, hSwPen);
-            if (i == 0) Ellipse(hdc, sx, sy, sx + 8, sy + 8);
-            else Rectangle(hdc, sx, sy, sx + 8, sy + 8);
+            if (i == 0) Ellipse(hdc, sx, sy, sx + swatchSize, sy + swatchSize);
+            else Rectangle(hdc, sx, sy, sx + swatchSize, sy + swatchSize);
             SelectObject(hdc, hOldBrush);
             SelectObject(hdc, hOldPen);
             DeleteObject(hSw);
             DeleteObject(hSwPen);
-            sx += 11;
+            sx += swatchSize + static_cast<int>(3 * m_scale);
         }
 
         RECT rText = rc;
-        rText.left = sx + 4;
-        rText.right -= 8;
+        rText.left = sx + static_cast<int>(4 * m_scale);
+        rText.right -= static_cast<int>(8 * m_scale);
         std::string label = std::string("TEMA: ") + themeDisplayName(getTheme());
         DrawTextUtf8(hdc, label, &rText, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, P.textPrimary);
     }
@@ -819,7 +946,8 @@ void UIEngine::onDrawItem(LPDRAWITEMSTRUCT pDIS) {
         HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hBrush);
         HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
 
-        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 26, 26);
+        int pillRad = (std::max)(12, static_cast<int>(26 * m_scale));
+        RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, pillRad, pillRad);
 
         SelectObject(hdc, hOldBrush);
         SelectObject(hdc, hOldPen);
@@ -828,15 +956,15 @@ void UIEngine::onDrawItem(LPDRAWITEMSTRUCT pDIS) {
 
         // Sol Metin: "SANDBOX: AKTİF" veya "SANDBOX: KAPALI"
         RECT rText = rc;
-        rText.left += 26;
-        rText.right -= 64;
+        rText.left += static_cast<int>(26 * m_scale);
+        rText.right -= static_cast<int>(64 * m_scale);
         std::string text = sbEnabled ? "SANDBOX: AKTİF" : "SANDBOX: KAPALI";
         DrawTextUtf8(hdc, text, &rText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, sbEnabled ? P.accentSecondary : P.textMuted);
 
         // Sağ Toggle Switch Kapsülü
-        int switchW = 46;
-        int switchH = 24;
-        int switchX = rc.right - switchW - 16;
+        int switchH = std::clamp(static_cast<int>((rc.bottom - rc.top) * 0.48), 16, 36);
+        int switchW = static_cast<int>(switchH * 1.9);
+        int switchX = rc.right - switchW - static_cast<int>(16 * m_scale);
         int switchY = rc.top + (rc.bottom - rc.top - switchH) / 2;
 
         HBRUSH hSwBg = CreateSolidBrush(sbEnabled ? BlendColor(P.cardBg, P.accentSecondary, 0.32) : BlendColor(P.cardBg, P.cardBorder, 0.6));
@@ -848,7 +976,7 @@ void UIEngine::onDrawItem(LPDRAWITEMSTRUCT pDIS) {
         DeleteObject(hSwPen);
 
         // Toggle Düğmesi (Thumb Knob)
-        int knobRadius = 9;
+        int knobRadius = (switchH / 2) - 3;
         int knobX = sbEnabled ? (switchX + switchW - knobRadius - 3) : (switchX + knobRadius + 3);
         int knobY = switchY + switchH / 2;
 
@@ -895,19 +1023,32 @@ void UIEngine::onPaint(HWND hWnd) {
         historyCopy.assign(m_history.begin(), m_history.end());
     }
 
-    HFONT hFontLogo = CreateFontA(17, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    // Dinamik koordinat ve boyut dönüştürücüler
+    auto S_X = [this](int x) { return m_viewportX + static_cast<int>(x * m_scale); };
+    auto S_Y = [this](int y) { return m_viewportY + static_cast<int>(y * m_scale); };
+    auto S_D = [this](int d) { return (std::max)(1, static_cast<int>(d * m_scale)); };
+
+    // Fikir 3: Görsel Sandbox Limit Aşım Kontrolleri & Flaş Zamanlaması
+    bool isRamBreach = stateCopy.sandboxEnabled && stateCopy.sandboxConfig.maxMemoryMB > 0 &&
+                       stateCopy.metrics.workingSetSizeMB >= stateCopy.sandboxConfig.maxMemoryMB;
+    bool isCpuBreach = stateCopy.sandboxEnabled && stateCopy.sandboxConfig.maxCpuPercent > 0 &&
+                       stateCopy.metrics.cpuUsagePercent >= static_cast<double>(stateCopy.sandboxConfig.maxCpuPercent);
+    bool anyBreach = isRamBreach || isCpuBreach;
+    bool flashTick = ((GetTickCount64() / 350) % 2 == 0);
+
+    HFONT hFontLogo = CreateFontA(S_D(17), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
-    HFONT hFontTitle = CreateFontA(13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    HFONT hFontTitle = CreateFontA(S_D(13), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
-    HFONT hFontSub = CreateFontA(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    HFONT hFontSub = CreateFontA(S_D(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
-    HFONT hFontBold = CreateFontA(13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    HFONT hFontBold = CreateFontA(S_D(13), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
-    HFONT hFontGaugeVal = CreateFontA(34, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    HFONT hFontGaugeVal = CreateFontA(S_D(34), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
-    HFONT hFontTree = CreateFontA(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    HFONT hFontTree = CreateFontA(S_D(13), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, "Segoe UI");
-    HFONT hFontAxis = CreateFontA(11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    HFONT hFontAxis = CreateFontA(S_D(11), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
 
     SetBkMode(hdc, TRANSPARENT);
@@ -920,16 +1061,19 @@ void UIEngine::onPaint(HWND hWnd) {
     HPEN hLogoPen = CreatePen(PS_SOLID, 1, P.accentSecondary);
     SelectObject(hdc, hLogoBrush);
     SelectObject(hdc, hLogoPen);
-    POINT logoPts[6] = { {20, 16}, {26, 12}, {32, 16}, {32, 26}, {26, 30}, {20, 26} };
+    POINT logoPts[6] = {
+        {S_X(20), S_Y(16)}, {S_X(26), S_Y(12)}, {S_X(32), S_Y(16)},
+        {S_X(32), S_Y(26)}, {S_X(26), S_Y(30)}, {S_X(20), S_Y(26)}
+    };
     Polygon(hdc, logoPts, 6);
     DeleteObject(hLogoBrush);
     DeleteObject(hLogoPen);
 
     SelectObject(hdc, hFontLogo);
-    TextOutUtf8(hdc, 38, 11, "SpecTer", P.textPrimary);
+    TextOutUtf8(hdc, S_X(38), S_Y(11), "SpecTer", P.textPrimary);
 
     SelectObject(hdc, hFontSub);
-    TextOutUtf8(hdc, 110, 14, ":: Kernel Observability & Sandboxed CLI/GUI Terminal", P.textMuted);
+    TextOutUtf8(hdc, S_X(110), S_Y(14), ":: Kernel Observability & Sandboxed CLI/GUI Terminal", P.textMuted);
 
     // Ortada Aktif Süreç Rozeti
     std::string procText = "⚡ Süreç: " + (stateCopy.processName.empty() ? "Beklemede..." : stateCopy.processName);
@@ -937,53 +1081,75 @@ void UIEngine::onPaint(HWND hWnd) {
         procText += " [PID: " + std::to_string(stateCopy.activePID) + "]";
     }
     SelectObject(hdc, hFontBold);
-    TextOutUtf8(hdc, 590, 13, procText, P.textPrimary);
+    TextOutUtf8(hdc, S_X(590), S_Y(13), procText, P.textPrimary);
 
-    // Sağ Üst Sandbox Durum Rozeti
-    RECT rBadge = { width - 200, 8, width - 20, 36 };
-    HBRUSH hBadgeBrush = CreateSolidBrush(stateCopy.sandboxEnabled ? BlendColor(P.bgMain, P.accentSecondary, 0.2) : BlendColor(P.bgMain, P.accentDanger, 0.16));
-    HPEN hBadgePen = CreatePen(PS_SOLID, 1, stateCopy.sandboxEnabled ? P.accentSecondary : P.accentDanger);
+    // Sağ Üst Sandbox Durum Rozeti (Limit aşımında yanıp söner)
+    RECT rBadge = { S_X(1200), S_Y(8), S_X(1380), S_Y(36) };
+    COLORREF badgeBorderCol;
+    COLORREF badgeBgCol;
+    std::string badgeStr;
+
+    if (stateCopy.sandboxEnabled) {
+        if (anyBreach) {
+            badgeBorderCol = flashTick ? P.accentDanger : BlendColor(P.accentDanger, P.textPrimary, 0.4);
+            badgeBgCol = BlendColor(P.bgMain, P.accentDanger, flashTick ? 0.35 : 0.18);
+            badgeStr = flashTick ? "⚠️ LIMIT AŞIMI (DEVREDE)" : "🛡️ KORUMA AKTİF";
+        } else {
+            badgeBorderCol = P.accentSecondary;
+            badgeBgCol = BlendColor(P.bgMain, P.accentSecondary, 0.2);
+            badgeStr = "🛡️ SANDBOX: AKTİF";
+        }
+    } else {
+        badgeBorderCol = P.accentDanger;
+        badgeBgCol = BlendColor(P.bgMain, P.accentDanger, 0.16);
+        badgeStr = "⚪ SANDBOX: KAPALI";
+    }
+
+    HBRUSH hBadgeBrush = CreateSolidBrush(badgeBgCol);
+    HPEN hBadgePen = CreatePen(PS_SOLID, 1, badgeBorderCol);
     SelectObject(hdc, hBadgeBrush);
     SelectObject(hdc, hBadgePen);
-    RoundRect(hdc, rBadge.left, rBadge.top, rBadge.right, rBadge.bottom, 12, 12);
+    RoundRect(hdc, rBadge.left, rBadge.top, rBadge.right, rBadge.bottom, S_D(12), S_D(12));
     DeleteObject(hBadgeBrush);
     DeleteObject(hBadgePen);
 
-    std::string badgeStr = stateCopy.sandboxEnabled ? "🛡️ SANDBOX: AKTİF" : "⚪ SANDBOX: KAPALI";
-    DrawTextUtf8(hdc, badgeStr, &rBadge, DT_CENTER | DT_VCENTER | DT_SINGLELINE, stateCopy.sandboxEnabled ? P.accentSecondary : BlendColor(P.accentDanger, P.textPrimary, 0.25));
+    COLORREF badgeTextCol = (stateCopy.sandboxEnabled && anyBreach) ? P.accentDanger :
+                            (stateCopy.sandboxEnabled ? P.accentSecondary : BlendColor(P.accentDanger, P.textPrimary, 0.25));
+    DrawTextUtf8(hdc, badgeStr, &rBadge, DT_CENTER | DT_VCENTER | DT_SINGLELINE, badgeTextCol);
 
     // ─────────────────────────────────────────────────────────────────────────
     // 2. SOL PANEL: GÖMÜLÜ TERMİNAL CARD (x: 20, y: 56, w: 550, h: 694)
     // ─────────────────────────────────────────────────────────────────────────
-    RECT rLeftCard = { 20, 56, 570, 750 };
+    RECT rLeftCard = { S_X(20), S_Y(56), S_X(570), S_Y(750) };
     HBRUSH hLeftCardBg = CreateSolidBrush(P.terminalBg);
     HPEN hLeftCardPen = CreatePen(PS_SOLID, 1, P.cardBorder);
     SelectObject(hdc, hLeftCardBg);
     SelectObject(hdc, hLeftCardPen);
-    RoundRect(hdc, rLeftCard.left, rLeftCard.top, rLeftCard.right, rLeftCard.bottom, 16, 16);
+    RoundRect(hdc, rLeftCard.left, rLeftCard.top, rLeftCard.right, rLeftCard.bottom, S_D(16), S_D(16));
     DeleteObject(hLeftCardBg);
     DeleteObject(hLeftCardPen);
 
     // Terminal Başlık Çubuğu
     SelectObject(hdc, hFontBold);
-    TextOutUtf8(hdc, 34, 68, "📟 GÖMÜLÜ TERMİNAL (ShellCore REPL v1.0)", P.accentSecondary);
+    TextOutUtf8(hdc, S_X(34), S_Y(68), "📟 GÖMÜLÜ TERMİNAL (ShellCore REPL v1.0)", P.accentSecondary);
 
     HPEN hTermSep = CreatePen(PS_SOLID, 1, P.cardBorder);
     SelectObject(hdc, hTermSep);
-    MoveToEx(hdc, 26, 88, NULL);
-    LineTo(hdc, 564, 88);
+    MoveToEx(hdc, S_X(26), S_Y(88), NULL);
+    LineTo(hdc, S_X(564), S_Y(88));
     DeleteObject(hTermSep);
 
     // ─────────────────────────────────────────────────────────────────────────
     // SAĞ PANEL 2x2 GRID KART ÇİZİM YARDIMCISI (specter_dashboard.jpg 1:1)
     // ─────────────────────────────────────────────────────────────────────────
-    auto drawDashboardCard = [&](int x, int y, int w, int h, const std::string& title) {
-        HPEN hCardPen = CreatePen(PS_SOLID, 1, P.cardBorder);
+    auto drawDashboardCard = [&](int x, int y, int w, int h, const std::string& title, bool alertCard = false) {
+        COLORREF bCol = (alertCard && flashTick) ? P.accentDanger : P.cardBorder;
+        HPEN hCardPen = CreatePen(PS_SOLID, alertCard ? 2 : 1, bCol);
         HBRUSH hCardBrush = CreateSolidBrush(P.cardBg);
         HPEN hOldP = (HPEN)SelectObject(hdc, hCardPen);
         HBRUSH hOldB = (HBRUSH)SelectObject(hdc, hCardBrush);
 
-        RoundRect(hdc, x, y, x + w, y + h, 16, 16);
+        RoundRect(hdc, x, y, x + w, y + h, S_D(16), S_D(16));
 
         SelectObject(hdc, hOldB);
         SelectObject(hdc, hOldP);
@@ -992,54 +1158,57 @@ void UIEngine::onPaint(HWND hWnd) {
 
         // Başlık
         SelectObject(hdc, hFontTitle);
-        TextOutUtf8(hdc, x + 20, y + 16, title, P.textLabel);
+        TextOutUtf8(hdc, x + S_D(20), y + S_D(16), title, alertCard ? P.accentDanger : P.textLabel);
 
         // Sağ üst köşe "···" simgesi
         SelectObject(hdc, hFontLogo);
-        TextOutUtf8(hdc, x + w - 36, y + 10, "···", BlendColor(P.textMuted, P.cardBg, 0.4));
+        TextOutUtf8(hdc, x + w - S_D(36), y + S_D(10), "···", BlendColor(P.textMuted, P.cardBg, 0.4));
     };
 
-    const int col1X = 588;
-    const int col2X = 990;
-    const int cardW = 382;
-    const int row1Y = 56;
-    const int row2Y = 413;
-    const int cardH = 337;
+    const int col1X = S_X(588);
+    const int col2X = S_X(990);
+    const int cardW = S_D(382);
+    const int row1Y = S_Y(56);
+    const int row2Y = S_Y(413);
+    const int cardH = S_D(337);
 
     // ─────────────────────────────────────────────────────────────────────────
     // KART 1 (Col 1, Row 1): "CPU USAGE"
     // ─────────────────────────────────────────────────────────────────────────
-    drawDashboardCard(col1X, row1Y, cardW, cardH, "CPU USAGE");
+    drawDashboardCard(col1X, row1Y, cardW, cardH, "CPU USAGE", isCpuBreach || isRamBreach);
 
     double cpuVal = std::clamp(stateCopy.metrics.cpuUsagePercent, 0.0, 100.0);
     int gaugeCenterX = col1X + cardW / 2;
-    int gaugeCenterY = row1Y + 135;
-    int gaugeRadius = 60;
+    int gaugeCenterY = row1Y + S_D(135);
+    int gaugeRadius = S_D(60);
 
     // 270 Derecelik Açık Dairesel Gösterge (135° ile 405° arası)
     // 1) Arka plan koyu iz
-    HPEN hTrackPen = CreatePen(PS_SOLID, 10, P.gridColor);
+    HPEN hTrackPen = CreatePen(PS_SOLID, S_D(10), P.gridColor);
     HPEN hOldTrack = (HPEN)SelectObject(hdc, hTrackPen);
+    int arcD = static_cast<int>(gaugeRadius * 0.7071);
     Arc(hdc, gaugeCenterX - gaugeRadius, gaugeCenterY - gaugeRadius,
              gaugeCenterX + gaugeRadius, gaugeCenterY + gaugeRadius,
-             gaugeCenterX - 42, gaugeCenterY + 42,
-             gaugeCenterX + 42, gaugeCenterY + 42);
+             gaugeCenterX - arcD, gaugeCenterY + arcD,
+             gaugeCenterX + arcD, gaugeCenterY + arcD);
     SelectObject(hdc, hOldTrack);
     DeleteObject(hTrackPen);
 
-    // 2) Aktif Neon Camgöbeği Yay
+    // 2) Aktif Neon Camgöbeği Yay (Limit aşımında kırmızı flaş yapar)
     if (cpuVal > 0.5) {
         double startAngle = 135.0 * (3.14159265 / 180.0);
         double sweepAngle = (cpuVal / 100.0) * 270.0 * (3.14159265 / 180.0);
         double endAngle = startAngle + sweepAngle;
 
-        int sx = gaugeCenterX - (int)(gaugeRadius * std::cos(startAngle));
-        int sy = gaugeCenterY + (int)(gaugeRadius * std::sin(startAngle));
-        int ex = gaugeCenterX - (int)(gaugeRadius * std::cos(endAngle));
-        int ey = gaugeCenterY + (int)(gaugeRadius * std::sin(endAngle));
+        int sx = gaugeCenterX - static_cast<int>(gaugeRadius * std::cos(startAngle));
+        int sy = gaugeCenterY + static_cast<int>(gaugeRadius * std::sin(startAngle));
+        int ex = gaugeCenterX - static_cast<int>(gaugeRadius * std::cos(endAngle));
+        int ey = gaugeCenterY + static_cast<int>(gaugeRadius * std::sin(endAngle));
+
+        COLORREF arcColor = isCpuBreach ? (flashTick ? P.accentDanger : RGB(255, 60, 60)) : P.accentPrimary;
 
         // Dış neon ışıma
-        HPEN hGlowPen = CreatePen(PS_SOLID, 14, BlendColor(P.cardBg, P.accentPrimary, 0.45));
+        HPEN hGlowPen = CreatePen(PS_SOLID, S_D(14), BlendColor(P.cardBg, arcColor, 0.45));
         SelectObject(hdc, hGlowPen);
         Arc(hdc, gaugeCenterX - gaugeRadius, gaugeCenterY - gaugeRadius,
                  gaugeCenterX + gaugeRadius, gaugeCenterY + gaugeRadius,
@@ -1047,7 +1216,7 @@ void UIEngine::onPaint(HWND hWnd) {
         DeleteObject(hGlowPen);
 
         // Ana parlak yay
-        HPEN hCpuPen = CreatePen(PS_SOLID, 9, P.accentPrimary);
+        HPEN hCpuPen = CreatePen(PS_SOLID, S_D(9), arcColor);
         SelectObject(hdc, hCpuPen);
         Arc(hdc, gaugeCenterX - gaugeRadius, gaugeCenterY - gaugeRadius,
                  gaugeCenterX + gaugeRadius, gaugeCenterY + gaugeRadius,
@@ -1057,33 +1226,41 @@ void UIEngine::onPaint(HWND hWnd) {
 
     // Gösterge Merkezindeki Büyük Yüzde Metni (Örn: 38%)
     SelectObject(hdc, hFontGaugeVal);
-    std::string sCpu = std::to_string((int)std::round(cpuVal)) + "%";
-    RECT rCpuVal = { gaugeCenterX - 60, gaugeCenterY - 20, gaugeCenterX + 60, gaugeCenterY + 20 };
-    DrawTextUtf8(hdc, sCpu, &rCpuVal, DT_CENTER | DT_VCENTER | DT_SINGLELINE, P.textPrimary);
+    std::string sCpu = std::to_string(static_cast<int>(std::round(cpuVal))) + "%";
+    RECT rCpuVal = { gaugeCenterX - S_D(60), gaugeCenterY - S_D(20), gaugeCenterX + S_D(60), gaugeCenterY + S_D(20) };
+    DrawTextUtf8(hdc, sCpu, &rCpuVal, DT_CENTER | DT_VCENTER | DT_SINGLELINE, isCpuBreach ? (flashTick ? P.accentDanger : P.textPrimary) : P.textPrimary);
+
+    if (isCpuBreach) {
+        SelectObject(hdc, hFontSub);
+        RECT rCpuAlert = { gaugeCenterX - S_D(100), gaugeCenterY + S_D(24), gaugeCenterX + S_D(100), gaugeCenterY + S_D(44) };
+        DrawTextUtf8(hdc, "⚠️ CPU LİMİTİ AŞILDI!", &rCpuAlert, DT_CENTER | DT_VCENTER | DT_SINGLELINE, P.accentDanger);
+    }
 
     // Alt Bellek (MEMORY) İlerleme Çubuğu ve Değerleri
     SelectObject(hdc, hFontBold);
-    TextOutUtf8(hdc, col1X + 26, row1Y + 242, "MEMORY", P.textMuted);
+    TextOutUtf8(hdc, col1X + S_D(26), row1Y + S_D(242), "MEMORY", isRamBreach ? P.accentDanger : P.textMuted);
 
     size_t maxLimitMB = (stateCopy.sandboxConfig.maxMemoryMB > 0) ? stateCopy.sandboxConfig.maxMemoryMB : 512;
     std::string ramValText = std::to_string(stateCopy.metrics.workingSetSizeMB) + " MB / " + std::to_string(maxLimitMB) + " MB";
-    RECT rRamText = { col1X + 160, row1Y + 242, col1X + cardW - 26, row1Y + 260 };
-    DrawTextUtf8(hdc, ramValText, &rRamText, DT_RIGHT | DT_SINGLELINE, BlendColor(P.textMuted, P.textPrimary, 0.6));
+    if (isRamBreach) ramValText += " ⚠️ AŞILDI";
+    RECT rRamText = { col1X + S_D(140), row1Y + S_D(242), col1X + cardW - S_D(26), row1Y + S_D(260) };
+    DrawTextUtf8(hdc, ramValText, &rRamText, DT_RIGHT | DT_SINGLELINE, isRamBreach ? P.accentDanger : BlendColor(P.textMuted, P.textPrimary, 0.6));
 
-    // Yuvarlatılmış Yeşil İlerleme Çubuğu Yuvası
-    RECT rRamBg = { col1X + 26, row1Y + 270, col1X + cardW - 26, row1Y + 282 };
+    // Yuvarlatılmış İlerleme Çubuğu Yuvası
+    RECT rRamBg = { col1X + S_D(26), row1Y + S_D(270), col1X + cardW - S_D(26), row1Y + S_D(282) };
     HBRUSH hRamBgBrush = CreateSolidBrush(P.gridColor);
     SelectObject(hdc, hRamBgBrush);
-    RoundRect(hdc, rRamBg.left, rRamBg.top, rRamBg.right, rRamBg.bottom, 8, 8);
+    RoundRect(hdc, rRamBg.left, rRamBg.top, rRamBg.right, rRamBg.bottom, S_D(8), S_D(8));
     DeleteObject(hRamBgBrush);
 
-    double ramRatio = std::clamp((double)stateCopy.metrics.workingSetSizeMB / (double)maxLimitMB, 0.0, 1.0);
-    int barW = (int)((rRamBg.right - rRamBg.left) * ramRatio);
+    double ramRatio = std::clamp(static_cast<double>(stateCopy.metrics.workingSetSizeMB) / static_cast<double>(maxLimitMB), 0.0, 1.0);
+    int barW = static_cast<int>((rRamBg.right - rRamBg.left) * ramRatio);
     if (barW > 6) {
         RECT rRamFill = { rRamBg.left, rRamBg.top, rRamBg.left + barW, rRamBg.bottom };
-        HBRUSH hRamFillBrush = CreateSolidBrush(P.accentSecondary);
+        COLORREF ramColor = isRamBreach ? (flashTick ? P.accentDanger : RGB(255, 60, 60)) : P.accentSecondary;
+        HBRUSH hRamFillBrush = CreateSolidBrush(ramColor);
         SelectObject(hdc, hRamFillBrush);
-        RoundRect(hdc, rRamFill.left, rRamFill.top, rRamFill.right, rRamFill.bottom, 8, 8);
+        RoundRect(hdc, rRamFill.left, rRamFill.top, rRamFill.right, rRamFill.bottom, S_D(8), S_D(8));
         DeleteObject(hRamFillBrush);
     }
 
@@ -1093,107 +1270,107 @@ void UIEngine::onPaint(HWND hWnd) {
     drawDashboardCard(col2X, row1Y, cardW, cardH, "KERNEL HANDLE TREE");
 
     SelectObject(hdc, hFontTree);
-    int treeX = col2X + 24;
-    int treeY = row1Y + 54;
-    int lineH = 29;
+    int treeX = col2X + S_D(24);
+    int treeY = row1Y + S_D(54);
+    int lineH = S_D(29);
 
     // Line 1: v 📁 Process (PID: ...)
-    DrawChevron(hdc, treeX, treeY + 3, true, P.textMuted);
-    DrawFolderIcon(hdc, treeX + 14, treeY + 1, P.accentPrimary);
+    DrawChevron(hdc, treeX, treeY + S_D(3), true, P.textMuted);
+    DrawFolderIcon(hdc, treeX + S_D(14), treeY + S_D(1), P.accentPrimary);
     std::string treeP = "Process (" + std::to_string(stateCopy.activePID > 0 ? 3 : 1) + ")";
-    TextOutUtf8(hdc, treeX + 34, treeY, treeP, BlendColor(P.textLabel, P.textPrimary, 0.7));
+    TextOutUtf8(hdc, treeX + S_D(34), treeY, treeP, BlendColor(P.textLabel, P.textPrimary, 0.7));
     treeY += lineH;
 
     // Line 2:   > 📁 Thread (1)
-    DrawChevron(hdc, treeX + 16, treeY + 3, false, P.textMuted);
-    DrawFolderIcon(hdc, treeX + 30, treeY + 1, BlendColor(P.textMuted, P.textPrimary, 0.4));
-    TextOutUtf8(hdc, treeX + 50, treeY, "Thread (1)", P.textMuted);
+    DrawChevron(hdc, treeX + S_D(16), treeY + S_D(3), false, P.textMuted);
+    DrawFolderIcon(hdc, treeX + S_D(30), treeY + S_D(1), BlendColor(P.textMuted, P.textPrimary, 0.4));
+    TextOutUtf8(hdc, treeX + S_D(50), treeY, "Thread (1)", P.textMuted);
     treeY += lineH;
 
     // Line 3:   v 📁 Thread (2)
-    DrawChevron(hdc, treeX + 16, treeY + 3, true, P.textMuted);
-    DrawFolderIcon(hdc, treeX + 30, treeY + 1, BlendColor(P.textMuted, P.textPrimary, 0.4));
+    DrawChevron(hdc, treeX + S_D(16), treeY + S_D(3), true, P.textMuted);
+    DrawFolderIcon(hdc, treeX + S_D(30), treeY + S_D(1), BlendColor(P.textMuted, P.textPrimary, 0.4));
     std::string threadNode = "Thread (" + std::to_string(std::max<DWORD>(2, stateCopy.metrics.threadCount)) + ")";
-    TextOutUtf8(hdc, treeX + 50, treeY, threadNode, BlendColor(P.textLabel, P.textPrimary, 0.7));
+    TextOutUtf8(hdc, treeX + S_D(50), treeY, threadNode, BlendColor(P.textLabel, P.textPrimary, 0.7));
     treeY += lineH;
 
     // Line 4:       📄 Win32 A00 (2)
-    DrawDocIcon(hdc, treeX + 52, treeY + 1, P.textMuted);
-    TextOutUtf8(hdc, treeX + 70, treeY, "Win32 A00 (2)", P.textMuted);
+    DrawDocIcon(hdc, treeX + S_D(52), treeY + S_D(1), P.textMuted);
+    TextOutUtf8(hdc, treeX + S_D(70), treeY, "Win32 A00 (2)", P.textMuted);
     treeY += lineH;
 
     // Line 5:       📄 Win32 CPU (1)
-    DrawDocIcon(hdc, treeX + 52, treeY + 1, P.textMuted);
-    TextOutUtf8(hdc, treeX + 70, treeY, "Win32 CPU (1)", P.textMuted);
+    DrawDocIcon(hdc, treeX + S_D(52), treeY + S_D(1), P.textMuted);
+    TextOutUtf8(hdc, treeX + S_D(70), treeY, "Win32 CPU (1)", P.textMuted);
     treeY += lineH;
 
     // Line 6:   > 📁 Win32 Handle Trees (3)
-    DrawChevron(hdc, treeX + 16, treeY + 3, false, P.textMuted);
-    DrawFolderIcon(hdc, treeX + 30, treeY + 1, BlendColor(P.textMuted, P.textPrimary, 0.4));
+    DrawChevron(hdc, treeX + S_D(16), treeY + S_D(3), false, P.textMuted);
+    DrawFolderIcon(hdc, treeX + S_D(30), treeY + S_D(1), BlendColor(P.textMuted, P.textPrimary, 0.4));
     std::string handleTrees = "Win32 Handle Trees (" + std::to_string(stateCopy.metrics.openHandleCount > 0 ? stateCopy.metrics.openHandleCount : 3) + ")";
-    TextOutUtf8(hdc, treeX + 50, treeY, handleTrees, P.textMuted);
+    TextOutUtf8(hdc, treeX + S_D(50), treeY, handleTrees, P.textMuted);
     treeY += lineH;
 
     // Line 7:   > 📁 Anonymous Pipes (2)
-    DrawChevron(hdc, treeX + 16, treeY + 3, false, P.textMuted);
-    DrawFolderIcon(hdc, treeX + 30, treeY + 1, P.accentWarning);
-    TextOutUtf8(hdc, treeX + 50, treeY, "Anonymous Pipes (2)", P.textMuted);
+    DrawChevron(hdc, treeX + S_D(16), treeY + S_D(3), false, P.textMuted);
+    DrawFolderIcon(hdc, treeX + S_D(30), treeY + S_D(1), P.accentWarning);
+    TextOutUtf8(hdc, treeX + S_D(50), treeY, "Anonymous Pipes (2)", P.textMuted);
     treeY += lineH;
 
     // Line 8:   > 📁 Win32 Handle (3)
-    DrawChevron(hdc, treeX + 16, treeY + 3, false, P.textMuted);
-    DrawFolderIcon(hdc, treeX + 30, treeY + 1, BlendColor(P.textMuted, P.textPrimary, 0.4));
-    TextOutUtf8(hdc, treeX + 50, treeY, "Win32 Handle (3)", P.textMuted);
+    DrawChevron(hdc, treeX + S_D(16), treeY + S_D(3), false, P.textMuted);
+    DrawFolderIcon(hdc, treeX + S_D(30), treeY + S_D(1), BlendColor(P.textMuted, P.textPrimary, 0.4));
+    TextOutUtf8(hdc, treeX + S_D(50), treeY, "Win32 Handle (3)", P.textMuted);
     treeY += lineH;
 
     // Line 9:   > 📁 Anonymous Pipes (1)
-    DrawChevron(hdc, treeX + 16, treeY + 3, false, P.textMuted);
-    DrawFolderIcon(hdc, treeX + 30, treeY + 1, P.accentWarning);
-    TextOutUtf8(hdc, treeX + 50, treeY, "Anonymous Pipes (1)", P.textMuted);
+    DrawChevron(hdc, treeX + S_D(16), treeY + S_D(3), false, P.textMuted);
+    DrawFolderIcon(hdc, treeX + S_D(30), treeY + S_D(1), P.accentWarning);
+    TextOutUtf8(hdc, treeX + S_D(50), treeY, "Anonymous Pipes (1)", P.textMuted);
 
     // ─────────────────────────────────────────────────────────────────────────
     // KART 3 (Col 1, Row 2): "SANDBOXING"
     // ─────────────────────────────────────────────────────────────────────────
-    drawDashboardCard(col1X, row2Y, cardW, cardH, "SANDBOXING");
+    drawDashboardCard(col1X, row2Y, cardW, cardH, "SANDBOXING", anyBreach);
 
     SelectObject(hdc, hFontBold);
-    // RAM Başlığı ve LIMIT Değeri (Slider 486'da, yazı 444'te - çakışma ve kırpılma yok)
-    TextOutUtf8(hdc, col1X + 26, row2Y + 44, "RAM", P.textPrimary);
+    std::string ramTitle = isRamBreach ? "RAM ⚠️ LİMİTTE!" : "RAM";
+    TextOutUtf8(hdc, col1X + S_D(26), row2Y + S_D(44), ramTitle, isRamBreach ? P.accentDanger : P.textPrimary);
     std::string ramLimitVal = std::to_string(stateCopy.sandboxConfig.maxMemoryMB) + " MB LIMIT";
-    RECT rRamLim = { col1X + 160, row2Y + 44, col1X + cardW - 26, row2Y + 62 };
-    DrawTextUtf8(hdc, ramLimitVal, &rRamLim, DT_RIGHT | DT_SINGLELINE, P.textMuted);
+    RECT rRamLim = { col1X + S_D(160), row2Y + S_D(44), col1X + cardW - S_D(26), row2Y + S_D(62) };
+    DrawTextUtf8(hdc, ramLimitVal, &rRamLim, DT_RIGHT | DT_SINGLELINE, isRamBreach ? P.accentDanger : P.textMuted);
 
-    // CPU Başlığı ve LIMIT Değeri (Slider 564'te, yazı 522'de - çakışma ve kırpılma yok)
-    TextOutUtf8(hdc, col1X + 26, row2Y + 122, "CPU", P.textPrimary);
+    std::string cpuTitle = isCpuBreach ? "CPU ⚠️ LİMİTTE!" : "CPU";
+    TextOutUtf8(hdc, col1X + S_D(26), row2Y + S_D(122), cpuTitle, isCpuBreach ? P.accentDanger : P.textPrimary);
     std::string cpuLimitVal = "%" + std::to_string(stateCopy.sandboxConfig.maxCpuPercent) + " LIMIT";
-    RECT rCpuLim = { col1X + 160, row2Y + 122, col1X + cardW - 26, row2Y + 140 };
-    DrawTextUtf8(hdc, cpuLimitVal, &rCpuLim, DT_RIGHT | DT_SINGLELINE, P.textMuted);
+    RECT rCpuLim = { col1X + S_D(160), row2Y + S_D(122), col1X + cardW - S_D(26), row2Y + S_D(140) };
+    DrawTextUtf8(hdc, cpuLimitVal, &rCpuLim, DT_RIGHT | DT_SINGLELINE, isCpuBreach ? P.accentDanger : P.textMuted);
 
     // ─────────────────────────────────────────────────────────────────────────
     // KART 4 (Col 2, Row 2): "TIME GRAPH"
     // ─────────────────────────────────────────────────────────────────────────
-    drawDashboardCard(col2X, row2Y, cardW, cardH, "TIME GRAPH");
+    drawDashboardCard(col2X, row2Y, cardW, cardH, "TIME GRAPH", anyBreach);
 
-    int gx = col2X + 46;
-    int gy = row2Y + 48;
-    int gw = cardW - 92;
-    int gh = 200;
+    int gx = col2X + S_D(46);
+    int gy = row2Y + S_D(48);
+    int gw = cardW - S_D(92);
+    int gh = S_D(200);
 
     // Eksen Başlıkları (Sol: CPU %, Sağ: RAM MB)
     SelectObject(hdc, hFontAxis);
-    RECT rCpuHead = { col2X + 2, gy - 16, gx - 4, gy };
+    RECT rCpuHead = { col2X + S_D(2), gy - S_D(16), gx - S_D(4), gy };
     DrawTextUtf8(hdc, "CPU %", &rCpuHead, DT_RIGHT | DT_SINGLELINE, P.accentPrimary);
 
-    RECT rRamHead = { gx + gw + 4, gy - 16, col2X + cardW - 4, gy };
+    RECT rRamHead = { gx + gw + S_D(4), gy - S_D(16), col2X + cardW - S_D(4), gy };
     DrawTextUtf8(hdc, "RAM", &rRamHead, DT_LEFT | DT_SINGLELINE, P.accentSecondary);
 
     // Grafik Zemin Dikdörtgeni
     RECT rGraph = { gx, gy, gx + gw, gy + gh };
     HBRUSH hGraphBg = CreateSolidBrush(BlendColor(P.cardBg, P.bgMain, 0.6));
-    HPEN hGraphBorder = CreatePen(PS_SOLID, 1, P.cardBorder);
+    HPEN hGraphBorder = CreatePen(PS_SOLID, 1, anyBreach ? BlendColor(P.cardBorder, P.accentDanger, 0.6) : P.cardBorder);
     SelectObject(hdc, hGraphBg);
     SelectObject(hdc, hGraphBorder);
-    RoundRect(hdc, rGraph.left, rGraph.top, rGraph.right, rGraph.bottom, 10, 10);
+    RoundRect(hdc, rGraph.left, rGraph.top, rGraph.right, rGraph.bottom, S_D(10), S_D(10));
     DeleteObject(hGraphBg);
     DeleteObject(hGraphBorder);
 
@@ -1209,13 +1386,13 @@ void UIEngine::onPaint(HWND hWnd) {
         // Sol Eksen Değeri: CPU % (100%, 75%, 50%, 25%, 0%)
         int cpuPct = 100 - step * 25;
         std::string cpuValStr = "%" + std::to_string(cpuPct);
-        RECT rCpuScale = { col2X + 2, yLine - 7, gx - 5, yLine + 9 };
+        RECT rCpuScale = { col2X + S_D(2), yLine - S_D(7), gx - S_D(5), yLine + S_D(9) };
         DrawTextUtf8(hdc, cpuValStr, &rCpuScale, DT_RIGHT | DT_SINGLELINE | DT_VCENTER, BlendColor(P.accentPrimary, P.textPrimary, 0.35));
 
         // Sağ Eksen Değeri: RAM MB (maxLimitMB ... 0M)
         size_t ramStepMB = (maxLimitMB * (4 - step)) / 4;
         std::string ramValStr = std::to_string(ramStepMB) + "M";
-        RECT rRamScale = { gx + gw + 5, yLine - 7, col2X + cardW - 4, yLine + 9 };
+        RECT rRamScale = { gx + gw + S_D(5), yLine - S_D(7), col2X + cardW - S_D(4), yLine + S_D(9) };
         DrawTextUtf8(hdc, ramValStr, &rRamScale, DT_LEFT | DT_SINGLELINE | DT_VCENTER, BlendColor(P.accentSecondary, P.textPrimary, 0.35));
     }
 
@@ -1226,19 +1403,19 @@ void UIEngine::onPaint(HWND hWnd) {
         MoveToEx(hdc, xLine, gy + 2, NULL);
         LineTo(hdc, xLine, gy + gh - 2);
 
-        RECT rTime = { xLine - 18, gy + gh + 4, xLine + 18, gy + gh + 18 };
+        RECT rTime = { xLine - S_D(18), gy + gh + S_D(4), xLine + S_D(18), gy + gh + S_D(18) };
         DrawTextUtf8(hdc, timeLabels[step], &rTime, DT_CENTER | DT_SINGLELINE, P.textMuted);
     }
     SelectObject(hdc, hOldGridPen);
     DeleteObject(hGridPen);
 
-    // Eğrilerin Çizimi (Anti-aliased görünümlü çift hat & yumuşak dolgu)
+    // Eğrilerin Çizimi
     if (historyCopy.size() >= 2) {
-        // RAM Yumuşak Alan Dolgusu (Soft Green Shading)
+        // RAM Yumuşak Alan Dolgusu
         for (size_t i = 0; i < historyCopy.size(); ++i) {
-            double rVal = std::clamp((double)historyCopy[i].ramMB / (double)maxLimitMB, 0.0, 1.0);
-            int ptX = gx + (int)((gw * i) / (MAX_HISTORY_POINTS - 1));
-            int ptY = (gy + gh - 2) - (int)((gh - 4) * rVal);
+            double rVal = std::clamp(static_cast<double>(historyCopy[i].ramMB) / static_cast<double>(maxLimitMB), 0.0, 1.0);
+            int ptX = gx + static_cast<int>((gw * i) / (MAX_HISTORY_POINTS - 1));
+            int ptY = (gy + gh - 2) - static_cast<int>((gh - 4) * rVal);
 
             HPEN hFillPen = CreatePen(PS_SOLID, 1, BlendColor(BlendColor(P.cardBg, P.bgMain, 0.6), P.accentSecondary, 0.2));
             HPEN hOldFP = (HPEN)SelectObject(hdc, hFillPen);
@@ -1252,9 +1429,9 @@ void UIEngine::onPaint(HWND hWnd) {
         HPEN hRamGraphPen = CreatePen(PS_SOLID, 2, P.accentSecondary);
         HPEN hOldRamGraph = (HPEN)SelectObject(hdc, hRamGraphPen);
         for (size_t i = 0; i < historyCopy.size(); ++i) {
-            double rVal = std::clamp((double)historyCopy[i].ramMB / (double)maxLimitMB, 0.0, 1.0);
-            int ptX = gx + (int)((gw * i) / (MAX_HISTORY_POINTS - 1));
-            int ptY = (gy + gh - 2) - (int)((gh - 4) * rVal);
+            double rVal = std::clamp(static_cast<double>(historyCopy[i].ramMB) / static_cast<double>(maxLimitMB), 0.0, 1.0);
+            int ptX = gx + static_cast<int>((gw * i) / (MAX_HISTORY_POINTS - 1));
+            int ptY = (gy + gh - 2) - static_cast<int>((gh - 4) * rVal);
             if (i == 0) MoveToEx(hdc, ptX, ptY, NULL);
             else LineTo(hdc, ptX, ptY);
         }
@@ -1266,8 +1443,8 @@ void UIEngine::onPaint(HWND hWnd) {
         HPEN hOldCpuGraph = (HPEN)SelectObject(hdc, hCpuGraphPen);
         for (size_t i = 0; i < historyCopy.size(); ++i) {
             double cVal = std::clamp(historyCopy[i].cpuUsagePercent, 0.0, 100.0);
-            int ptX = gx + (int)((gw * i) / (MAX_HISTORY_POINTS - 1));
-            int ptY = (gy + gh - 2) - (int)((gh - 4) * (cVal / 100.0));
+            int ptX = gx + static_cast<int>((gw * i) / (MAX_HISTORY_POINTS - 1));
+            int ptY = (gy + gh - 2) - static_cast<int>((gh - 4) * (cVal / 100.0));
             if (i == 0) MoveToEx(hdc, ptX, ptY, NULL);
             else LineTo(hdc, ptX, ptY);
         }
@@ -1282,17 +1459,17 @@ void UIEngine::onPaint(HWND hWnd) {
             HPEN hOldMkPen = (HPEN)SelectObject(hdc, hMkPen);
             HBRUSH hOldMkBrush = (HBRUSH)SelectObject(hdc, hRamMk);
             for (size_t i = 0; i < historyCopy.size(); i += 6) {
-                int ptX = gx + (int)((gw * i) / (MAX_HISTORY_POINTS - 1));
+                int ptX = gx + static_cast<int>((gw * i) / (MAX_HISTORY_POINTS - 1));
 
-                double rVal = std::clamp((double)historyCopy[i].ramMB / (double)maxLimitMB, 0.0, 1.0);
-                int rY = (gy + gh - 2) - (int)((gh - 4) * rVal);
+                double rVal = std::clamp(static_cast<double>(historyCopy[i].ramMB) / static_cast<double>(maxLimitMB), 0.0, 1.0);
+                int rY = (gy + gh - 2) - static_cast<int>((gh - 4) * rVal);
                 SelectObject(hdc, hRamMk);
-                Rectangle(hdc, ptX - 3, rY - 3, ptX + 4, rY + 4);
+                Rectangle(hdc, ptX - S_D(3), rY - S_D(3), ptX + S_D(4), rY + S_D(4));
 
                 double cVal = std::clamp(historyCopy[i].cpuUsagePercent, 0.0, 100.0);
-                int cY = (gy + gh - 2) - (int)((gh - 4) * (cVal / 100.0));
+                int cY = (gy + gh - 2) - static_cast<int>((gh - 4) * (cVal / 100.0));
                 SelectObject(hdc, hCpuMk);
-                Ellipse(hdc, ptX - 4, cY - 4, ptX + 5, cY + 5);
+                Ellipse(hdc, ptX - S_D(4), cY - S_D(4), ptX + S_D(5), cY + S_D(5));
             }
             SelectObject(hdc, hOldMkBrush);
             SelectObject(hdc, hOldMkPen);
@@ -1304,7 +1481,7 @@ void UIEngine::onPaint(HWND hWnd) {
 
     // Grafik Altındaki Lejant: ● CPU (%)    ● RAM (MB)
     SelectObject(hdc, hFontBold);
-    int legY = gy + gh + 22;
+    int legY = gy + gh + S_D(22);
     int legCenterX = gx + gw / 2;
 
     // CPU Lejantı
@@ -1312,21 +1489,21 @@ void UIEngine::onPaint(HWND hWnd) {
     HPEN hCpuDotPen = CreatePen(PS_SOLID, 1, P.accentPrimary);
     SelectObject(hdc, hCpuDotBrush);
     SelectObject(hdc, hCpuDotPen);
-    Ellipse(hdc, legCenterX - 78, legY + 4, legCenterX - 70, legY + 12);
+    Ellipse(hdc, legCenterX - S_D(78), legY + S_D(4), legCenterX - S_D(70), legY + S_D(12));
     DeleteObject(hCpuDotBrush);
     DeleteObject(hCpuDotPen);
-    TextOutUtf8(hdc, legCenterX - 66, legY, "CPU (%)", P.textPrimary);
+    TextOutUtf8(hdc, legCenterX - S_D(66), legY, "CPU (%)", P.textPrimary);
 
     // RAM Lejantı
     HBRUSH hRamDotBrush = CreateSolidBrush(P.accentSecondary);
     HPEN hRamDotPen = CreatePen(PS_SOLID, 1, P.accentSecondary);
     SelectObject(hdc, hRamDotBrush);
     SelectObject(hdc, hRamDotPen);
-    if (P.shapeMarkers) Rectangle(hdc, legCenterX + 16, legY + 4, legCenterX + 24, legY + 12);
-    else Ellipse(hdc, legCenterX + 16, legY + 4, legCenterX + 24, legY + 12);
+    if (P.shapeMarkers) Rectangle(hdc, legCenterX + S_D(16), legY + S_D(4), legCenterX + S_D(24), legY + S_D(12));
+    else Ellipse(hdc, legCenterX + S_D(16), legY + S_D(4), legCenterX + S_D(24), legY + S_D(12));
     DeleteObject(hRamDotBrush);
     DeleteObject(hRamDotPen);
-    TextOutUtf8(hdc, legCenterX + 29, legY, "RAM (MB)", P.textPrimary);
+    TextOutUtf8(hdc, legCenterX + S_D(29), legY, "RAM (MB)", P.textPrimary);
 
     DeleteObject(hFontLogo);
     DeleteObject(hFontTitle);
@@ -1352,7 +1529,31 @@ LRESULT CALLBACK UIEngine::TerminalEditProc(HWND hWnd, UINT msg, WPARAM wParam, 
     UIEngine* pThis = (UIEngine*)GetWindowLongPtrA(hWnd, GWLP_USERDATA);
     WNDPROC pfnOld = pThis ? pThis->m_pfnOldEditProc : nullptr;
 
+    if (msg == WM_GETDLGCODE) {
+        return DLGC_WANTALLKEYS | DLGC_WANTTAB | DLGC_WANTARROWS | DLGC_WANTCHARS;
+    }
+
+    if (msg == WM_CHAR) {
+        if (wParam == VK_TAB) {
+            return 0; // Tab karakteri basılmasını engelle
+        }
+    }
+
     if (msg == WM_KEYDOWN) {
+        if (wParam != VK_TAB) {
+            if (pThis) {
+                pThis->resetTabCompletion();
+            }
+        }
+
+        // TAB : Otomatik Tamamlama (Fikir 4)
+        if (wParam == VK_TAB) {
+            if (pThis) {
+                pThis->handleTabCompletion();
+            }
+            return 0;
+        }
+
         // F2 veya Ctrl+T : Erişilebilirlik temaları arasında geçiş
         if (wParam == VK_F2 || ((GetKeyState(VK_CONTROL) & 0x8000) && (wParam == 'T' || wParam == 't'))) {
             if (pThis) {
@@ -1533,6 +1734,183 @@ void UIEngine::replaceCurrentInput(const std::string& input) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Dinamik Yeniden Boyutlandırma & En-Boy Oranı Koruma (Layout Scaling)
+// ─────────────────────────────────────────────────────────────────────────────
+void UIEngine::updateLayout(int cx, int cy) {
+    if (cx <= 0 || cy <= 0) return;
+
+    const double TARGET_RATIO = 1400.0 / 800.0;
+    int vw = cx;
+    int vh = static_cast<int>(cx / TARGET_RATIO);
+    if (vh > cy) {
+        vh = cy;
+        vw = static_cast<int>(cy * TARGET_RATIO);
+    }
+
+    m_viewportW = vw;
+    m_viewportH = vh;
+    m_viewportX = (cx - vw) / 2;
+    m_viewportY = (cy - vh) / 2;
+    m_scale = static_cast<double>(vw) / 1400.0;
+
+    auto S_X = [this](int x) { return m_viewportX + static_cast<int>(x * m_scale); };
+    auto S_Y = [this](int y) { return m_viewportY + static_cast<int>(y * m_scale); };
+    auto S_W = [this](int w) { return (std::max)(10, static_cast<int>(w * m_scale)); };
+    auto S_H = [this](int h) { return (std::max)(10, static_cast<int>(h * m_scale)); };
+
+    if (m_hTerminalEdit && IsWindow(m_hTerminalEdit)) {
+        MoveWindow(m_hTerminalEdit, S_X(28), S_Y(92), S_W(534), S_H(648), TRUE);
+        int termFontSize = std::clamp(static_cast<int>(16 * m_scale), 10, 32);
+        if (m_hTermFont) DeleteObject(m_hTermFont);
+        m_hTermFont = CreateFontA(termFontSize, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, "Consolas");
+        if (m_hTermFont) {
+            SendMessageA(m_hTerminalEdit, WM_SETFONT, (WPARAM)m_hTermFont, TRUE);
+        }
+    }
+
+    if (m_hTrackRam && IsWindow(m_hTrackRam)) {
+        MoveWindow(m_hTrackRam, S_X(610), S_Y(486), S_W(338), S_H(24), TRUE);
+    }
+    if (m_hTrackCpu && IsWindow(m_hTrackCpu)) {
+        MoveWindow(m_hTrackCpu, S_X(610), S_Y(564), S_W(338), S_H(24), TRUE);
+    }
+    if (m_hBtnToggleSandbox && IsWindow(m_hBtnToggleSandbox)) {
+        MoveWindow(m_hBtnToggleSandbox, S_X(616), S_Y(638), S_W(326), S_H(50), TRUE);
+    }
+    if (m_hBtnTheme && IsWindow(m_hBtnTheme)) {
+        MoveWindow(m_hBtnTheme, S_X(996), S_Y(8), S_W(192), S_H(28), TRUE);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Terminal Otomatik Tamamlama (Tab Completion - Fikir 4)
+// ─────────────────────────────────────────────────────────────────────────────
+void UIEngine::handleTabCompletion() {
+    if (!m_hTerminalEdit || !IsWindow(m_hTerminalEdit)) return;
+
+    int textLen = GetWindowTextLengthA(m_hTerminalEdit);
+    std::vector<char> buf(textLen + 1, 0);
+    GetWindowTextA(m_hTerminalEdit, buf.data(), textLen + 1);
+
+    std::string fullText(buf.data());
+    size_t lastPrompt = fullText.rfind("SpecTer [");
+    std::string cmd;
+    if (lastPrompt != std::string::npos) {
+        size_t arrowPos = fullText.find("]> ", lastPrompt);
+        if (arrowPos != std::string::npos) {
+            cmd = fullText.substr(arrowPos + 3);
+        }
+    } else {
+        cmd = fullText;
+    }
+
+    // Tab ile ardışık eşleşmeler arasında döngü yapma
+    if (!m_tabMatches.empty() && !m_lastTabPrefix.empty()) {
+        m_tabMatchIndex = (m_tabMatchIndex + 1) % m_tabMatches.size();
+        std::string chosen = m_tabMatches[m_tabMatchIndex];
+        std::string newCmd = m_tabBase + chosen;
+        if (m_tabMatches.size() == 1 && !chosen.empty() && chosen.back() != '\\') {
+            newCmd += " ";
+        }
+        replaceCurrentInput(newCmd);
+        return;
+    }
+
+    // Yeni tab tamamlama araması
+    size_t lastSpace = cmd.find_last_of(" \t");
+    std::string base;
+    std::string word;
+    if (lastSpace == std::string::npos) {
+        base = "";
+        word = cmd;
+    } else {
+        base = cmd.substr(0, lastSpace + 1);
+        word = cmd.substr(lastSpace + 1);
+    }
+
+    std::vector<std::string> candidates;
+    std::string baseTrim = base;
+    while (!baseTrim.empty() && baseTrim.back() == ' ') baseTrim.pop_back();
+    std::string baseLower = ToLowerAscii(baseTrim);
+
+    if (baseLower.empty()) {
+        // Yerleşik komut sözlüğü
+        candidates = {
+            "bench", "cat", "cd", "chdir", "clear", "cls", "copy", "cp",
+            "date", "del", "delete", "demo", "dir", "echo", "erase", "exit",
+            "export", "help", "history", "job", "kill", "ls", "md", "mkdir",
+            "move", "mv", "procs", "ps", "quit", "rd", "ren", "rename",
+            "report", "rm", "rmdir", "sandbox", "stress", "sysinfo",
+            "systeminfo", "taskkill", "tema", "theme", "time", "timeit",
+            "touch", "type"
+        };
+    } else if (baseLower == "sandbox" || baseLower == "job") {
+        candidates = { "on", "off", "status", "set", "ram", "cpu" };
+    } else if (baseLower == "sandbox set") {
+        candidates = { "ram", "cpu" };
+    } else if (baseLower == "tema" || baseLower == "theme") {
+        candidates = {
+            "normal", "protan", "deutan", "tritan", "sonraki",
+            "goster", "renk", "isaret", "sifirla", "kaydet", "yukle", "yardim"
+        };
+    } else if (baseLower == "ps" || baseLower == "procs") {
+        candidates = { "top", "mem", "cpu" };
+    }
+
+    // Bulunulan dizindeki dosya ve klasörleri de eşleştir
+    WIN32_FIND_DATAA fd;
+    std::string searchPat = word + "*";
+    HANDLE hFind = FindFirstFileA(searchPat.c_str(), &fd);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            std::string fname = fd.cFileName;
+            if (fname != "." && fname != "..") {
+                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                    candidates.push_back(fname + "\\");
+                } else {
+                    candidates.push_back(fname);
+                }
+            }
+        } while (FindNextFileA(hFind, &fd));
+        FindClose(hFind);
+    }
+
+    // Prefixe göre filtrele (büyük/küçük harf duyarsız)
+    std::vector<std::string> matches;
+    for (const auto& c : candidates) {
+        if (c.size() >= word.size()) {
+            if (_strnicmp(c.c_str(), word.c_str(), word.size()) == 0) {
+                if (std::find(matches.begin(), matches.end(), c) == matches.end()) {
+                    matches.push_back(c);
+                }
+            }
+        }
+    }
+
+    if (matches.empty()) return;
+
+    m_tabMatches = matches;
+    m_tabMatchIndex = 0;
+    m_lastTabPrefix = word;
+    m_tabBase = base;
+
+    std::string chosen = m_tabMatches[0];
+    std::string newCmd = base + chosen;
+    if (matches.size() == 1 && !chosen.empty() && chosen.back() != '\\') {
+        newCmd += " ";
+    }
+    replaceCurrentInput(newCmd);
+}
+
+void UIEngine::resetTabCompletion() {
+    m_tabMatches.clear();
+    m_tabMatchIndex = 0;
+    m_lastTabPrefix.clear();
+    m_tabBase.clear();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Erişilebilirlik Tema Yönetimi (Renk Körlüğü Temaları)
 // ─────────────────────────────────────────────────────────────────────────────
 ThemePalette UIEngine::activePalette() const {
@@ -1629,7 +2007,7 @@ bool UIEngine::loadThemesFromFile(const std::string& path) {
     }
 
     GetPrivateProfileStringA("General", "activeTheme", "", buf, sizeof(buf), file.c_str());
-    ColorBlindTheme active;
+    ColorBlindTheme active = ColorBlindTheme::Normal;
     if (buf[0] != '\0' && ParseThemeName(buf, active)) {
         m_activeTheme.store(ThemeIndex(active));
     }
